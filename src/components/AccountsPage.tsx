@@ -6,6 +6,7 @@ interface Props {
   accountTypes: AccountType[];
   onAdd: (a: Omit<Account, "id" | "createdAt">) => void;
   onAddType: (t: Omit<AccountType, "id">) => void;
+  onDeleteType: (id: string) => boolean;
   onDelete: (id: string) => void;
 }
 
@@ -29,12 +30,20 @@ const BLANK_TYPE = {
   color: "#60a5fa"
 };
 
-export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType, onDelete }: Props) {
+export default function AccountsPage({
+  accounts,
+  accountTypes,
+  onAdd,
+  onAddType,
+  onDeleteType,
+  onDelete
+}: Props) {
   const [tab, setTab]           = useState<"asset" | "liability">("asset");
   const [showForm, setShowForm] = useState(false);
   const [showTypeForm, setShowTypeForm] = useState(false);
   const [form, setForm]         = useState(BLANK);
   const [typeForm, setTypeForm] = useState(BLANK_TYPE);
+  const [typeDeleteMessage, setTypeDeleteMessage] = useState("");
 
   useEffect(() => {
     if (!form.group && accountTypes.length > 0) {
@@ -121,6 +130,8 @@ export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType,
       {/* ── Account groups ─────────────────────────────── */}
       {accountTypes.map((grp) => {
         const grpAccounts = visible.filter((a) => a.group === grp.id);
+        const allTypeAccounts = accounts.filter((a) => a.group === grp.id);
+        const canDeleteType = allTypeAccounts.length === 0;
         if (grpAccounts.length === 0 && grp.defaultType !== tab) return null;
 
         const grpTotal = grpAccounts.reduce((s, a) => s + a.balance, 0);
@@ -132,7 +143,24 @@ export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType,
                 <span className="group-dot" style={{ backgroundColor: grp.color }} />
                 <h3>{grp.label}</h3>
               </div>
-              <strong style={{ color: grp.color }}>{fmt.format(grpTotal)}</strong>
+              <div className="account-group-actions">
+                <strong style={{ color: grp.color }}>{fmt.format(grpTotal)}</strong>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={!canDeleteType}
+                  onClick={() => {
+                    const deleted = onDeleteType(grp.id);
+                    if (!deleted) {
+                      setTypeDeleteMessage("Delete all accounts in this type before removing the type.");
+                    } else {
+                      setTypeDeleteMessage("");
+                    }
+                  }}
+                >
+                  Delete Type
+                </button>
+              </div>
             </div>
 
             {grpAccounts.length === 0 ? (
@@ -164,6 +192,8 @@ export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType,
           </div>
         );
       })}
+
+      {typeDeleteMessage ? <p className="type-message">{typeDeleteMessage}</p> : null}
 
       <button
         type="button"

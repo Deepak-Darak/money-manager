@@ -174,6 +174,15 @@ export default function App() {
     });
   }
 
+  function deleteAccountType(id: string) {
+    if (accounts.some((a) => a.group === id)) {
+      return false;
+    }
+
+    setAccountTypes((current) => current.filter((type) => type.id !== id));
+    return true;
+  }
+
   function deleteAccount(id: string) {
     setAccounts((current) => current.filter((a) => a.id !== id));
   }
@@ -229,15 +238,17 @@ export default function App() {
       {/* ── Transactions ──────────────────────────── */}
       {activeTab === "transactions" && (
         <div className="tab-content">
-          <TransactionForm
-            categories={categories}
-            accounts={accounts}
-            onAddTransaction={editingTransaction ? updateTransaction : addTransaction}
-            formTitle={editingTransaction ? "Edit Transaction" : "Add Transaction"}
-            submitLabel={editingTransaction ? "Update Transaction" : "Save Transaction"}
-            initialValue={editingTransaction}
-            onCancel={editingTransaction ? () => setEditingTransactionId(null) : undefined}
-          />
+          {editingTransaction && (
+            <TransactionForm
+              categories={categories}
+              accounts={accounts}
+              onAddTransaction={updateTransaction}
+              formTitle="Edit Transaction"
+              submitLabel="Update Transaction"
+              initialValue={editingTransaction}
+              onCancel={() => setEditingTransactionId(null)}
+            />
+          )}
 
           <TransactionTimeline
             transactions={transactions}
@@ -261,6 +272,7 @@ export default function App() {
             accountTypes={accountTypes}
             onAdd={addAccount}
             onAddType={addAccountType}
+            onDeleteType={deleteAccountType}
             onDelete={deleteAccount}
           />
         </div>
