@@ -575,25 +575,6 @@ export default function App() {
             </div>
           </section>
 
-          <section className="panel budget-section">
-            <label>
-              Expense Month Filter
-              <select value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)}>
-                {monthOptions.map((month) => (
-                  <option key={month} value={month}>
-                    {month}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </section>
-
-          <ExpenseChart
-            transactions={dashboardExpenseTransactions}
-            categories={categories}
-            label={dashboardMonth}
-          />
-
           <div className="dashboard-form-section">
             <TransactionForm
               categories={categories}
@@ -651,6 +632,25 @@ export default function App() {
         {/* ── Charts ────────────────────────────────── */}
         {activeTab === "charts" && (
           <div className="tab-content">
+            <section className="panel budget-section chart-filter-section">
+              <label>
+                Expense Breakdown Month
+                <select value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)}>
+                  {monthOptions.map((month) => (
+                    <option key={month} value={month}>
+                      {month}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
+
+            <ExpenseChart
+              transactions={dashboardExpenseTransactions}
+              categories={categories}
+              label={dashboardMonth}
+            />
+
             <ChartsDashboard transactions={transactions} categories={categories} />
           </div>
         )}
