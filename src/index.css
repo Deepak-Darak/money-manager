@@ -765,7 +765,7 @@ textarea:focus {
   margin-bottom: 12px;
   position: fixed;
   left: 50%;
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   width: min(1150px, calc(100% - 24px));
   z-index: 120;
@@ -818,7 +818,7 @@ textarea:focus {
     padding: 6px 4px;
     justify-content: space-around;
     width: calc(100% - 16px);
-    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   }
 
   .nav-btn {
