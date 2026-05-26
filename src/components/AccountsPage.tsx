@@ -135,6 +135,7 @@ export default function AccountsPage({
         if (grpAccounts.length === 0 && grp.defaultType !== tab) return null;
 
         const grpTotal = grpAccounts.reduce((s, a) => s + a.balance, 0);
+        const shownGroupTotal = tab === "liability" ? Math.abs(grpTotal) : grpTotal;
 
         return (
           <div key={grp.id} className="account-group panel">
@@ -144,7 +145,7 @@ export default function AccountsPage({
                 <h3>{grp.label}</h3>
               </div>
               <div className="account-group-actions">
-                <strong style={{ color: grp.color }}>{fmt.format(grpTotal)}</strong>
+                <strong style={{ color: grp.color }}>{fmt.format(shownGroupTotal)}</strong>
                 <button
                   type="button"
                   className="ghost-btn"
@@ -175,7 +176,7 @@ export default function AccountsPage({
                   </div>
                   <div className="account-row-right">
                     <span className={ac.type === "asset" ? "plus" : "minus"}>
-                      {fmt.format(ac.balance)}
+                      {fmt.format(ac.type === "liability" ? Math.abs(ac.balance) : ac.balance)}
                     </span>
                     <button
                       type="button"

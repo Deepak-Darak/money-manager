@@ -78,22 +78,17 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
     return account;
   }
 
-  function adjustBalance(accountId: string | undefined, delta: number, useTypeAwareDelta = false) {
+  function adjustBalance(accountId: string | undefined, delta: number) {
     if (!accountId) {
       return;
     }
     const index = next.findIndex((a) => a.id === accountId);
     if (index >= 0) {
       const account = next[index];
-      const typedDelta = useTypeAwareDelta
-        ? account.type === "asset"
-          ? delta
-          : -delta
-        : delta;
 
       next[index] = {
         ...account,
-        balance: account.balance + typedDelta
+        balance: account.balance + delta
       };
 
       next[index] = normalizeAccountTypeByBalance(next[index]);
@@ -111,11 +106,9 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
   }
 
   if (tx.kind === "transfer") {
-    // Transfer rules are type-aware:
-    // - Assets: outgoing subtracts, incoming adds.
-    // - Liabilities: outgoing adds, incoming subtracts.
-    adjustBalance(tx.fromAccountId, -tx.amount * direction, true);
-    adjustBalance(tx.toAccountId, tx.amount * direction, true);
+    // Signed-balance transfer is intentionally direction-only so add/delete/edit stay perfectly reversible.
+    adjustBalance(tx.fromAccountId, -tx.amount * direction);
+    adjustBalance(tx.toAccountId, tx.amount * direction);
   }
 
   return next;
