@@ -4,6 +4,7 @@ import type { Category, Transaction } from "../types/finance";
 interface ExpenseChartProps {
   transactions: Transaction[];
   categories: Category[];
+  label?: string;
 }
 
 interface ChartDatum {
@@ -18,7 +19,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0
 });
 
-export default function ExpenseChart({ transactions, categories }: ExpenseChartProps) {
+export default function ExpenseChart({ transactions, categories, label }: ExpenseChartProps) {
   const expenseData = transactions.filter((transaction) => transaction.kind === "expense");
 
   const chartData: ChartDatum[] = categories
@@ -41,6 +42,7 @@ export default function ExpenseChart({ transactions, categories }: ExpenseChartP
     <section className="panel chart-panel">
       <div className="panel-header-row">
         <h2>Expense Breakdown</h2>
+        {label ? <span>{label}</span> : null}
       </div>
 
       {chartData.length === 0 ? (

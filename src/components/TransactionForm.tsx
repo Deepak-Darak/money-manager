@@ -5,8 +5,10 @@ export interface NewTransactionInput {
   title: string;
   amount: number;
   kind: TransactionKind;
-  categoryId: string;
+  categoryId?: string;
   accountId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
   date: string;
   note?: string;
 }
@@ -15,27 +17,46 @@ interface TransactionFormProps {
   categories: Category[];
   accounts?: Account[];
   onAddTransaction: (payload: NewTransactionInput) => void;
+  initialValue?: Partial<NewTransactionInput>;
+  submitLabel?: string;
+  title?: string;
+  onCancel?: () => void;
 }
 
 function getTodayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function TransactionForm({ categories, accounts, onAddTransaction }: TransactionFormProps) {
+export default function TransactionForm({
+  categories,
+  accounts,
+  onAddTransaction,
+  initialValue,
+  submitLabel = "Save Transaction",
+  title = "Add Transaction",
+  onCancel
+}: TransactionFormProps) {
   const [kind, setKind] = useState<TransactionKind>("expense");
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(getTodayString);
   const [categoryId, setCategoryId] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [fromAccountId, setFromAccountId] = useState("");
+  const [toAccountId, setToAccountId] = useState("");
   const [note, setNote] = useState("");
 
   const filteredCategories = useMemo(
-    () => categories.filter((category) => category.kind === kind),
+    () => categories.filter((category) => category.kind === (kind === "income" ? "income" : "expense")),
     [categories, kind]
   );
 
   useEffect(() => {
+    if (kind === "transfer") {
+      setCategoryId("");
+      return;
+    }
+
     if (filteredCategories.length === 0) {
       setCategoryId("");
       return;
@@ -46,11 +67,54 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
     }
   }, [categoryId, filteredCategories]);
 
+  useEffect(() => {
+    if (!initialValue) {
+      return;
+    }
+
+    setKind(initialValue.kind ?? "expense");
+    setTitle(initialValue.title ?? "");
+    setAmount(initialValue.amount !== undefined ? String(initialValue.amount) : "");
+    setDate(initialValue.date ?? getTodayString());
+    setCategoryId(initialValue.categoryId ?? "");
+    setAccountId(initialValue.accountId ?? "");
+    setFromAccountId(initialValue.fromAccountId ?? "");
+    setToAccountId(initialValue.toAccountId ?? "");
+    setNote(initialValue.note ?? "");
+  }, [initialValue]);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const parsedAmount = Number(amount);
-    if (!title.trim() || !categoryId || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return;
+    }
+
+    if (kind === "transfer") {
+      if (!fromAccountId || !toAccountId || fromAccountId === toAccountId) {
+        return;
+      }
+
+      onAddTransaction({
+        title: title.trim() || "Transfer",
+        amount: parsedAmount,
+        kind,
+        fromAccountId,
+        toAccountId,
+        date,
+        note: note.trim() ? note.trim() : undefined
+      });
+
+      setTitle("");
+      setAmount("");
+      setNote("");
+      setFromAccountId("");
+      setToAccountId("");
+      return;
+    }
+
+    if (!title.trim() || !categoryId) {
       return;
     }
 
@@ -67,12 +131,13 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
     setTitle("");
     setAmount("");
     setNote("");
+    setAccountId("");
   }
 
   return (
     <form className="panel form-panel" onSubmit={handleSubmit}>
       <div className="panel-header-row">
-        <h2>Add Transaction</h2>
+        <h2>{title}</h2>
       </div>
 
       <div className="segmented-switch" role="radiogroup" aria-label="Transaction type">
@@ -90,6 +155,13 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
         >
           Income
         </button>
+        <button
+          type="button"
+          className={kind === "transfer" ? "active" : ""}
+          onClick={() => setKind("transfer")}
+        >
+          Transfer
+        </button>
       </div>
 
       <div className="form-grid">
@@ -99,8 +171,7 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
             type="text"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="e.g. Groceries"
-            required
+            placeholder={kind === "transfer" ? "e.g. Transfer to Savings" : "e.g. Groceries"}
           />
         </label>
 
@@ -127,29 +198,59 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
           />
         </label>
 
-        <label>
-          Category
-          <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} required>
-            {filteredCategories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {kind !== "transfer" ? (
+          <>
+            <label>
+              Category
+              <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} required>
+                {filteredCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        {accounts && accounts.length > 0 && (
-          <label>
-            Account (optional)
-            <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
-              <option value="">None</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            {accounts && accounts.length > 0 && (
+              <label>
+                Account
+                <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+                  <option value="">None</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
+        ) : (
+          <>
+            <label>
+              From Account
+              <select value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)} required>
+                <option value="">Select source</option>
+                {(accounts ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              To Account
+              <select value={toAccountId} onChange={(event) => setToAccountId(event.target.value)} required>
+                <option value="">Select destination</option>
+                {(accounts ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
         )}
       </div>
 
@@ -163,9 +264,16 @@ export default function TransactionForm({ categories, accounts, onAddTransaction
         />
       </label>
 
-      <button type="submit" className="primary-btn">
-        Save Transaction
-      </button>
+      <div className="form-actions-row">
+        <button type="submit" className="primary-btn">
+          {submitLabel}
+        </button>
+        {onCancel && (
+          <button type="button" className="ghost-btn" onClick={onCancel}>
+            Cancel Edit
+          </button>
+        )}
+      </div>
     </form>
   );
 }

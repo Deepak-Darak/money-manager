@@ -8,6 +8,7 @@ interface Props {
   transactions: Transaction[];
   categories: Category[];
   accounts: Account[];
+  onEdit: (tx: Transaction) => void;
   onDelete: (id: string) => void;
   focusDate: string;
 }
@@ -23,6 +24,7 @@ export default function TransactionTimeline({
   transactions,
   categories,
   accounts,
+  onEdit,
   onDelete,
   focusDate,
 }: Props) {
@@ -40,23 +42,32 @@ export default function TransactionTimeline({
 
   // ── Single transaction row ────────────────────────
   function renderTxRow(tx: Transaction) {
-    const cat = catMap.get(tx.categoryId);
+    const cat = catMap.get(tx.categoryId ?? "");
     const ac  = acMap.get(tx.accountId ?? "");
+    const fromAc = acMap.get(tx.fromAccountId ?? "");
+    const toAc = acMap.get(tx.toAccountId ?? "");
+    const subtitle =
+      tx.kind === "transfer"
+        ? `Transfer: ${fromAc?.name ?? "Unknown"} -> ${toAc?.name ?? "Unknown"}`
+        : `${cat?.name ?? "Uncategorized"}${ac ? ` · ${ac.name}` : ""}`;
+    const amountClass = tx.kind === "income" ? "plus" : tx.kind === "expense" ? "minus" : "neutral";
+    const amountPrefix = tx.kind === "income" ? "+" : tx.kind === "expense" ? "−" : "";
+
     return (
       <article key={tx.id} className="transaction-item">
         <div className="transaction-main">
           <h3>{tx.title}</h3>
-          <p>
-            {cat?.name ?? "Uncategorized"}
-            {ac ? ` · ${ac.name}` : ""}
-          </p>
+          <p>{subtitle}</p>
           {tx.note && <small>{tx.note}</small>}
         </div>
         <div className="transaction-meta">
-          <strong className={tx.kind === "income" ? "plus" : "minus"}>
-            {tx.kind === "income" ? "+" : "−"}
+          <strong className={amountClass}>
+            {amountPrefix}
             {fmt.format(tx.amount)}
           </strong>
+          <button type="button" className="ghost-btn" onClick={() => onEdit(tx)}>
+            Edit
+          </button>
           <button type="button" className="ghost-btn" onClick={() => onDelete(tx.id)}>
             Delete
           </button>
@@ -112,6 +123,9 @@ export default function TransactionTimeline({
   // ── MONTH VIEW ────────────────────────────────────
   function renderMonthView() {
     const monthStr = format(cursorDate, "yyyy-MM");
+    const monthTxs = transactions.filter((t) => t.date.startsWith(monthStr));
+    const monthIncome = monthTxs.filter((t) => t.kind === "income").reduce((s, t) => s + t.amount, 0);
+    const monthExpense = monthTxs.filter((t) => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
     const byDay = transactions
       .filter((t) => t.date.startsWith(monthStr))
       .reduce<Record<string, Transaction[]>>((acc, t) => {
@@ -135,6 +149,10 @@ export default function TransactionTimeline({
           <button type="button" className="ghost-btn timeline-arrow" onClick={() => setCursorDate((d) => addMonths(d, 1))}>
             →
           </button>
+        </div>
+        <div className="timeline-day-totals">
+          <span className="plus">+{fmtShort.format(monthIncome)}</span>
+          <span className="minus">−{fmtShort.format(monthExpense)}</span>
         </div>
 
         {sortedDays.length === 0 ? (

@@ -1,10 +1,17 @@
-export type TransactionKind = "income" | "expense";
-export type AccountGroup = "portfolio" | "bank" | "credit" | "other";
+export type TransactionKind = "income" | "expense" | "transfer";
+export type AccountGroup = string;
+
+export interface AccountType {
+  id: string;
+  label: string;
+  defaultType: "asset" | "liability";
+  color: string;
+}
 
 export interface Category {
   id: string;
   name: string;
-  kind: TransactionKind;
+  kind: "income" | "expense";
   color: string;
   icon: string;
 }
@@ -14,8 +21,10 @@ export interface Transaction {
   title: string;
   amount: number;
   kind: TransactionKind;
-  categoryId: string;
+  categoryId?: string;
   accountId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
   date: string;
   note?: string;
   createdAt: string;

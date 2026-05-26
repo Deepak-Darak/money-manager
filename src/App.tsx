@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
+import ExpenseChart from "./components/ExpenseChart";
 import Navigation, { type Tab } from "./components/Navigation";
-import SummaryCards from "./components/SummaryCards";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
 import TransactionTimeline from "./components/TransactionTimeline";
+import { defaultAccountTypes } from "./data/accountGroups";
 import { categories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
-import type { Account, Transaction } from "./types/finance";
+import type { Account, AccountType, Transaction } from "./types/finance";
 
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -24,38 +25,132 @@ function getCurrentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+function slugify(input: string) {
+  return input.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
+  const next = [...currentAccounts];
+
+  function adjustBalance(accountId: string | undefined, delta: number) {
+    if (!accountId) {
+      return;
+    }
+    const index = next.findIndex((a) => a.id === accountId);
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        balance: next[index].balance + delta
+      };
+    }
+  }
+
+  if (tx.kind === "income") {
+    adjustBalance(tx.accountId, tx.amount * direction);
+    return next;
+  }
+
+  if (tx.kind === "expense") {
+    adjustBalance(tx.accountId, -tx.amount * direction);
+    return next;
+  }
+
+  if (tx.kind === "transfer") {
+    adjustBalance(tx.fromAccountId, -tx.amount * direction);
+    adjustBalance(tx.toAccountId, tx.amount * direction);
+  }
+
+  return next;
+}
+
 export default function App() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>("mm-transactions", []);
-  const [accounts, setAccounts]         = useLocalStorage<Account[]>("mm-accounts", []);
-  const [monthBudget, setMonthBudget]   = useLocalStorage<number>("mm-month-budget", 0);
-  const [activeTab, setActiveTab]       = useState<Tab>("dashboard");
-  const [focusDate, setFocusDate]       = useState(getTodayString);
+  const [accounts, setAccounts] = useLocalStorage<Account[]>("mm-accounts", []);
+  const [accountTypes, setAccountTypes] = useLocalStorage<AccountType[]>(
+    "mm-account-types",
+    defaultAccountTypes
+  );
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [focusDate, setFocusDate] = useState(getTodayString);
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
 
-  const totals = useMemo(() => {
-    const income  = transactions.filter((t) => t.kind === "income").reduce((s, t) => s + t.amount, 0);
-    const expense = transactions.filter((t) => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
-    return { income, expense, balance: income - expense };
+  const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
+  const totalLiabilities = accounts
+    .filter((a) => a.type === "liability")
+    .reduce((sum, a) => sum + a.balance, 0);
+  const currentTotalBalance = totalAssets - totalLiabilities;
+
+  const monthOptions = useMemo(() => {
+    const allMonths = Array.from(new Set(transactions.map((t) => t.date.slice(0, 7))));
+    if (!allMonths.includes(getCurrentMonth())) {
+      allMonths.push(getCurrentMonth());
+    }
+    return allMonths.sort((a, b) => b.localeCompare(a));
   }, [transactions]);
 
-  const monthExpense = transactions
-    .filter((t) => t.kind === "expense" && t.date.startsWith(getCurrentMonth()))
-    .reduce((s, t) => s + t.amount, 0);
+  const dashboardExpenseTransactions = transactions.filter(
+    (t) => t.kind === "expense" && t.date.startsWith(dashboardMonth)
+  );
+
+  const editingTransaction = editingTransactionId
+    ? transactions.find((t) => t.id === editingTransactionId)
+    : undefined;
 
   function addTransaction(payload: NewTransactionInput) {
+    const nextTransaction: Transaction = {
+      ...payload,
+      id: makeId(),
+      createdAt: new Date().toISOString()
+    };
+
     setTransactions((current) => [
-      {
-        ...payload,
-        id: makeId(),
-        createdAt: new Date().toISOString(),
-      },
+      nextTransaction,
       ...current
     ]);
+
+    setAccounts((current) => applyTransactionEffect(current, nextTransaction, 1));
     setFocusDate(payload.date);
     setActiveTab("transactions");
   }
 
+  function updateTransaction(payload: NewTransactionInput) {
+    if (!editingTransactionId) {
+      return;
+    }
+
+    const oldTransaction = transactions.find((t) => t.id === editingTransactionId);
+    if (!oldTransaction) {
+      return;
+    }
+
+    const updatedTransaction: Transaction = {
+      ...oldTransaction,
+      ...payload
+    };
+
+    setTransactions((current) =>
+      current.map((t) => (t.id === editingTransactionId ? updatedTransaction : t))
+    );
+
+    setAccounts((current) => {
+      const reverted = applyTransactionEffect(current, oldTransaction, -1);
+      return applyTransactionEffect(reverted, updatedTransaction, 1);
+    });
+
+    setFocusDate(payload.date);
+    setEditingTransactionId(null);
+  }
+
   function deleteTransaction(id: string) {
+    const oldTransaction = transactions.find((t) => t.id === id);
     setTransactions((current) => current.filter((transaction) => transaction.id !== id));
+    if (oldTransaction) {
+      setAccounts((current) => applyTransactionEffect(current, oldTransaction, -1));
+    }
+    if (editingTransactionId === id) {
+      setEditingTransactionId(null);
+    }
   }
 
   function addAccount(data: Omit<Account, "id" | "createdAt">) {
@@ -63,6 +158,20 @@ export default function App() {
       ...current,
       { ...data, id: makeId(), createdAt: new Date().toISOString() },
     ]);
+  }
+
+  function addAccountType(data: Omit<AccountType, "id">) {
+    setAccountTypes((current) => {
+      const baseId = slugify(data.label) || "custom-type";
+      let id = baseId;
+      let counter = 2;
+      while (current.some((t) => t.id === id)) {
+        id = `${baseId}-${counter}`;
+        counter += 1;
+      }
+
+      return [...current, { ...data, id }];
+    });
   }
 
   function deleteAccount(id: string) {
@@ -78,37 +187,41 @@ export default function App() {
       {/* ── Dashboard ─────────────────────────────── */}
       {activeTab === "dashboard" && (
         <div className="tab-content">
-          <header className="hero">
-            <p className="eyebrow">Money Manager</p>
-            <h1>Track every rupee, steer your future.</h1>
-            <p>Add a transaction below — it will appear instantly in your timeline.</p>
-          </header>
-
-          <SummaryCards
-            income={totals.income}
-            expense={totals.expense}
-            balance={totals.balance}
-            monthBudget={monthBudget}
-            monthExpense={monthExpense}
-          />
+          <section className="panel net-balance-card">
+            <p>Current Total Balance (Assets - Liabilities)</p>
+            <h2 className={currentTotalBalance >= 0 ? "plus" : "minus"}>
+              ₹{Math.round(currentTotalBalance).toLocaleString("en-IN")}
+            </h2>
+            <div className="balance-split-row">
+              <span className="plus">Assets: ₹{Math.round(totalAssets).toLocaleString("en-IN")}</span>
+              <span className="minus">Liabilities: ₹{Math.round(totalLiabilities).toLocaleString("en-IN")}</span>
+            </div>
+          </section>
 
           <section className="panel budget-section">
             <label>
-              Monthly Budget (₹)
-              <input
-                type="number"
-                min={0}
-                step="100"
-                value={monthBudget}
-                onChange={(e) => setMonthBudget(Number(e.target.value) || 0)}
-              />
+              Expense Month Filter
+              <select value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)}>
+                {monthOptions.map((month) => (
+                  <option key={month} value={month}>
+                    {month}
+                  </option>
+                ))}
+              </select>
             </label>
           </section>
+
+          <ExpenseChart
+            transactions={dashboardExpenseTransactions}
+            categories={categories}
+            label={dashboardMonth}
+          />
 
           <TransactionForm
             categories={categories}
             accounts={accounts}
             onAddTransaction={addTransaction}
+            title="Add Transaction"
           />
         </div>
       )}
@@ -116,10 +229,24 @@ export default function App() {
       {/* ── Transactions ──────────────────────────── */}
       {activeTab === "transactions" && (
         <div className="tab-content">
+          <TransactionForm
+            categories={categories}
+            accounts={accounts}
+            onAddTransaction={editingTransaction ? updateTransaction : addTransaction}
+            title={editingTransaction ? "Edit Transaction" : "Add Transaction"}
+            submitLabel={editingTransaction ? "Update Transaction" : "Save Transaction"}
+            initialValue={editingTransaction}
+            onCancel={editingTransaction ? () => setEditingTransactionId(null) : undefined}
+          />
+
           <TransactionTimeline
             transactions={transactions}
             categories={categories}
             accounts={accounts}
+            onEdit={(tx) => {
+              setEditingTransactionId(tx.id);
+              setFocusDate(tx.date);
+            }}
             onDelete={deleteTransaction}
             focusDate={focusDate}
           />
@@ -131,7 +258,9 @@ export default function App() {
         <div className="tab-content">
           <AccountsPage
             accounts={accounts}
+            accountTypes={accountTypes}
             onAdd={addAccount}
+            onAddType={addAccountType}
             onDelete={deleteAccount}
           />
         </div>

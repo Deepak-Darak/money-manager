@@ -1,10 +1,11 @@
-import { FormEvent, useState } from "react";
-import { accountGroupConfigs } from "../data/accountGroups";
-import type { Account, AccountGroup } from "../types/finance";
+import { FormEvent, useEffect, useState } from "react";
+import type { Account, AccountType } from "../types/finance";
 
 interface Props {
   accounts: Account[];
+  accountTypes: AccountType[];
   onAdd: (a: Omit<Account, "id" | "createdAt">) => void;
+  onAddType: (t: Omit<AccountType, "id">) => void;
   onDelete: (id: string) => void;
 }
 
@@ -16,16 +17,30 @@ const fmt = new Intl.NumberFormat("en-IN", {
 
 const BLANK = {
   name: "",
-  group: "bank" as AccountGroup,
+  group: "",
   type: "asset" as "asset" | "liability",
   balance: "",
   note: "",
 };
 
-export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
+const BLANK_TYPE = {
+  label: "",
+  defaultType: "asset" as "asset" | "liability",
+  color: "#60a5fa"
+};
+
+export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType, onDelete }: Props) {
   const [tab, setTab]           = useState<"asset" | "liability">("asset");
   const [showForm, setShowForm] = useState(false);
+  const [showTypeForm, setShowTypeForm] = useState(false);
   const [form, setForm]         = useState(BLANK);
+  const [typeForm, setTypeForm] = useState(BLANK_TYPE);
+
+  useEffect(() => {
+    if (!form.group && accountTypes.length > 0) {
+      setForm((f) => ({ ...f, group: accountTypes[0].id, type: accountTypes[0].defaultType }));
+    }
+  }, [accountTypes, form.group]);
 
   const totalAssets = accounts
     .filter((a) => a.type === "asset")
@@ -37,7 +52,7 @@ export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.group) return;
     onAdd({
       name:    form.name.trim(),
       group:   form.group,
@@ -47,6 +62,20 @@ export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
     });
     setForm(BLANK);
     setShowForm(false);
+  }
+
+  function handleTypeSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!typeForm.label.trim()) return;
+
+    onAddType({
+      label: typeForm.label.trim(),
+      defaultType: typeForm.defaultType,
+      color: typeForm.color
+    });
+
+    setTypeForm(BLANK_TYPE);
+    setShowTypeForm(false);
   }
 
   const visible = accounts.filter((a) => a.type === tab);
@@ -90,7 +119,7 @@ export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
       </div>
 
       {/* ── Account groups ─────────────────────────────── */}
-      {accountGroupConfigs.map((grp) => {
+      {accountTypes.map((grp) => {
         const grpAccounts = visible.filter((a) => a.group === grp.id);
         if (grpAccounts.length === 0 && grp.defaultType !== tab) return null;
 
@@ -136,6 +165,58 @@ export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
         );
       })}
 
+      <button
+        type="button"
+        className="ghost-btn"
+        style={{ width: "fit-content" }}
+        onClick={() => setShowTypeForm((s) => !s)}
+      >
+        {showTypeForm ? "Cancel Type" : "+ Add Account Type"}
+      </button>
+
+      {showTypeForm && (
+        <form className="panel form-panel" onSubmit={handleTypeSubmit}>
+          <h3 style={{ marginBottom: 14 }}>New Account Type</h3>
+          <div className="form-grid">
+            <label>
+              Type Label
+              <input
+                value={typeForm.label}
+                onChange={(e) => setTypeForm((f) => ({ ...f, label: e.target.value }))}
+                placeholder="e.g. Cash Wallet"
+                required
+              />
+            </label>
+
+            <label>
+              Default Bucket
+              <select
+                value={typeForm.defaultType}
+                onChange={(e) =>
+                  setTypeForm((f) => ({ ...f, defaultType: e.target.value as "asset" | "liability" }))
+                }
+              >
+                <option value="asset">Asset</option>
+                <option value="liability">Liability</option>
+              </select>
+            </label>
+
+            <label>
+              Color
+              <input
+                type="color"
+                value={typeForm.color}
+                onChange={(e) => setTypeForm((f) => ({ ...f, color: e.target.value }))}
+              />
+            </label>
+          </div>
+
+          <button type="submit" className="primary-btn">
+            Save Type
+          </button>
+        </form>
+      )}
+
       {/* ── Add account button ─────────────────────────── */}
       <button
         type="button"
@@ -178,7 +259,7 @@ export default function AccountsPage({ accounts, onAdd, onDelete }: Props) {
                 value={form.group}
                 onChange={(e) => setForm((f) => ({ ...f, group: e.target.value as AccountGroup }))}
               >
-                {accountGroupConfigs.map((g) => (
+                {accountTypes.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.label}
                   </option>

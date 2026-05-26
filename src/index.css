@@ -269,7 +269,7 @@ textarea:focus {
 
 .segmented-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   border: 1px solid var(--line);
   padding: 4px;
   border-radius: 999px;
@@ -319,6 +319,17 @@ textarea:focus {
 
 .primary-btn:hover  { filter: brightness(1.12); }
 .primary-btn:active { transform: scale(0.98); }
+
+.form-actions-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.form-actions-row .ghost-btn {
+  margin-top: 12px;
+}
 
 .chart-wrap {
   display: grid;
@@ -416,6 +427,7 @@ textarea:focus {
 
 .plus  { color: var(--accent); font-weight: 700; font-size: 1rem; }
 .minus { color: var(--accent-red); font-weight: 700; font-size: 1rem; }
+.neutral { color: var(--accent-blue); font-weight: 700; font-size: 1rem; }
 
 .ghost-btn {
   border: 1px solid var(--line);
@@ -609,8 +621,34 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
-.budget-section input {
+.budget-section input,
+.budget-section select {
   max-width: 200px;
+}
+
+.net-balance-card {
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-top: 3px solid var(--accent-blue);
+}
+
+.net-balance-card p {
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.net-balance-card h2 {
+  margin-bottom: 8px;
+  font-size: 1.85rem;
+  font-family: "Manrope", sans-serif;
+}
+
+.balance-split-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
 }
 
 /* ─── Accounts page ──────────────────────────────────────── */
@@ -882,6 +920,10 @@ textarea:focus {
 @media (max-width: 640px) {
   .year-grid { grid-template-columns: repeat(3, 1fr); }
   .timeline-panel { padding: 14px; }
+
+  .form-actions-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 380px) {
