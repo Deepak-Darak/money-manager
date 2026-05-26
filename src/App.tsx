@@ -11,7 +11,6 @@ import { useLocalStorage } from "./hooks/useLocalStorage";
 import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types/finance";
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
-const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD ?? "";
 
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -79,13 +78,12 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
 }
 
 interface AuthLoginFormProps {
-  appPassword: string;
   syncEndpoint: string;
   onSuccess: (email: string, token: string) => void;
   onError: (message: string) => void;
 }
 
-function AuthLoginForm({ appPassword, syncEndpoint, onSuccess, onError }: AuthLoginFormProps) {
+function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -100,11 +98,6 @@ function AuthLoginForm({ appPassword, syncEndpoint, onSuccess, onError }: AuthLo
 
     if (!syncEndpoint) {
       onError("Sync endpoint is not configured.");
-      return;
-    }
-
-    if (!appPassword) {
-      onError("App password is not configured.");
       return;
     }
 
@@ -439,7 +432,6 @@ export default function App() {
             Enter your email and password to access your money manager. Your data will be stored securely in Google Sheets.
           </p>
           <AuthLoginForm
-            appPassword={APP_PASSWORD}
             syncEndpoint={SYNC_ENDPOINT}
             onSuccess={(email, token) => {
               setUserEmail(email);
