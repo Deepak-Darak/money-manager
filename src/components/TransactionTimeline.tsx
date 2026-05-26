@@ -65,11 +65,11 @@ export default function TransactionTimeline({
             {amountPrefix}
             {fmt.format(tx.amount)}
           </strong>
-          <button type="button" className="ghost-btn" onClick={() => onEdit(tx)}>
-            Edit
+          <button type="button" className="ghost-btn" aria-label="Edit transaction" onClick={() => onEdit(tx)}>
+            ✏️
           </button>
-          <button type="button" className="ghost-btn" onClick={() => onDelete(tx.id)}>
-            Delete
+          <button type="button" className="ghost-btn" aria-label="Delete transaction" onClick={() => onDelete(tx.id)}>
+            🗑️
           </button>
         </div>
       </article>
