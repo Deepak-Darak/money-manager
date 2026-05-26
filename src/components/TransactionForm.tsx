@@ -1,17 +1,19 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { Category, TransactionKind } from "../types/finance";
+import type { Account, Category, TransactionKind } from "../types/finance";
 
 export interface NewTransactionInput {
   title: string;
   amount: number;
   kind: TransactionKind;
   categoryId: string;
+  accountId?: string;
   date: string;
   note?: string;
 }
 
 interface TransactionFormProps {
   categories: Category[];
+  accounts?: Account[];
   onAddTransaction: (payload: NewTransactionInput) => void;
 }
 
@@ -19,12 +21,13 @@ function getTodayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function TransactionForm({ categories, onAddTransaction }: TransactionFormProps) {
+export default function TransactionForm({ categories, accounts, onAddTransaction }: TransactionFormProps) {
   const [kind, setKind] = useState<TransactionKind>("expense");
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(getTodayString);
   const [categoryId, setCategoryId] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
 
   const filteredCategories = useMemo(
@@ -56,6 +59,7 @@ export default function TransactionForm({ categories, onAddTransaction }: Transa
       amount: parsedAmount,
       kind,
       categoryId,
+      accountId: accountId || undefined,
       date,
       note: note.trim() ? note.trim() : undefined
     });
@@ -133,6 +137,20 @@ export default function TransactionForm({ categories, onAddTransaction }: Transa
             ))}
           </select>
         </label>
+
+        {accounts && accounts.length > 0 && (
+          <label>
+            Account (optional)
+            <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+              <option value="">None</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <label>
