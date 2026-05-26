@@ -32,6 +32,18 @@ function slugify(input: string) {
   return input.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+function formatSyncError(error: unknown) {
+  if (error instanceof TypeError) {
+    return "Cannot reach the Google Apps Script sync endpoint. Redeploy the web app as Anyone, use the latest /exec URL, and update VITE_SYNC_ENDPOINT if it changed.";
+  }
+
+  if (error instanceof Error && /failed to fetch|load failed/i.test(error.message)) {
+    return "Cannot reach the Google Apps Script sync endpoint. Redeploy the web app as Anyone, use the latest /exec URL, and update VITE_SYNC_ENDPOINT if it changed.";
+  }
+
+  return error instanceof Error ? error.message : "Cloud sync failed.";
+}
+
 function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
   const next = [...currentAccounts];
 
@@ -252,7 +264,7 @@ export default function App() {
       setAuthStatus("Data loaded from Google Sheets.");
       setLastPulledToken(token);
     } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : "Failed to load cloud data.");
+      setAuthStatus(formatSyncError(error));
     } finally {
       setIsSyncing(false);
     }
@@ -267,7 +279,7 @@ export default function App() {
       await syncRequest("push", email, token);
       setAuthStatus(`Synced for ${email}.`);
     } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : "Failed to sync cloud data.");
+      setAuthStatus(formatSyncError(error));
     } finally {
       setIsSyncing(false);
     }
