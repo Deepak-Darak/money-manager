@@ -444,11 +444,27 @@ export default function App() {
   }
 
   function addAccount(data: Omit<Account, "id" | "createdAt">) {
-    const normalizedType = data.balance < 0 ? "liability" : data.balance > 0 ? "asset" : data.type;
+    const normalizedType =
+      data.type === "liability"
+        ? "liability"
+        : data.balance < 0
+          ? "liability"
+          : data.balance > 0
+            ? "asset"
+            : data.type;
+
+    const normalizedBalance =
+      normalizedType === "liability" && data.balance !== 0 ? -Math.abs(data.balance) : data.balance;
 
     setAccounts((current) => [
       ...current,
-      { ...data, type: normalizedType, id: makeId(), createdAt: new Date().toISOString() },
+      {
+        ...data,
+        type: normalizedType,
+        balance: normalizedBalance,
+        id: makeId(),
+        createdAt: new Date().toISOString()
+      },
     ]);
   }
 
