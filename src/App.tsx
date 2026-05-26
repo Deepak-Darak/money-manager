@@ -651,7 +651,9 @@ export default function App() {
               label={dashboardMonth}
             />
 
-            <ChartsDashboard transactions={transactions} categories={categories} />
+            <div className="charts-analytics-wrap">
+              <ChartsDashboard transactions={transactions} categories={categories} />
+            </div>
           </div>
         )}
       </div>

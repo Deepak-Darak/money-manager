@@ -51,7 +51,7 @@ p {
 .app-shell {
   max-width: 1150px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
+  padding: 20px 16px 118px;
   position: relative;
 }
 
@@ -762,8 +762,15 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 5px;
-  margin-bottom: 16px;
-  position: static;
+  margin-bottom: 12px;
+  position: fixed;
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(1150px, calc(100% - 24px));
+  z-index: 120;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
 }
 
 .nav-btn {
@@ -804,12 +811,14 @@ textarea:focus {
 
 @media (max-width: 640px) {
   .app-nav {
-    position: static;
+    position: fixed;
     border-radius: var(--radius);
     border: 1px solid var(--line);
-    margin-bottom: 16px;
+    margin-bottom: 0;
     padding: 6px 4px;
     justify-content: space-around;
+    width: calc(100% - 16px);
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   .nav-btn {
@@ -830,6 +839,10 @@ textarea:focus {
 
 .chart-filter-section {
   margin-bottom: 12px;
+}
+
+.charts-analytics-wrap {
+  margin-top: 14px;
 }
 
 .budget-section label {
@@ -1215,7 +1228,7 @@ textarea:focus {
   .timeline-panel { padding: 12px; }
 
   .app-shell {
-    padding: 10px 10px 86px;
+    padding: 10px 10px 124px;
   }
 
   .panel,
