@@ -10,8 +10,8 @@ import { categories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types/finance";
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
+const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD ?? "";
 
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -30,22 +30,6 @@ function getCurrentMonth() {
 
 function slugify(input: string) {
   return input.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-interface GoogleJwtPayload {
-  email?: string;
-  name?: string;
-}
-
-function decodeJwtPayload(token: string): GoogleJwtPayload {
-  try {
-    const payload = token.split(".")[1];
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const json = atob(normalized);
-    return JSON.parse(json) as GoogleJwtPayload;
-  } catch {
-    return {};
-  }
 }
 
 function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
@@ -82,6 +66,88 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
   return next;
 }
 
+interface AuthLoginFormProps {
+  appPassword: string;
+  syncEndpoint: string;
+  onSuccess: (email: string, token: string) => void;
+  onError: (message: string) => void;
+}
+
+function AuthLoginForm({ appPassword, syncEndpoint, onSuccess, onError }: AuthLoginFormProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    
+    if (!email || !password) {
+      onError("Email and password are required.");
+      return;
+    }
+
+    if (!syncEndpoint) {
+      onError("Sync endpoint is not configured.");
+      return;
+    }
+
+    if (!appPassword) {
+      onError("App password is not configured.");
+      return;
+    }
+
+    if (password !== appPassword) {
+      onError("Incorrect password.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(syncEndpoint, {
+        method: "POST",
+        body: JSON.stringify({ action: "verify", email, password })
+      });
+
+      if (!response.ok) {
+        onError("Authentication failed.");
+        return;
+      }
+
+      onSuccess(email, password);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Authentication error.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="auth-login-form">
+      <input
+        type="email"
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        disabled={isLoading}
+        required
+      />
+      <input
+        type="password"
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        disabled={isLoading}
+        required
+      />
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? "Signing in..." : "Sign In"}
+      </button>
+    </form>
+  );
+}
+
+
+
 export default function App() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>("mm-transactions", []);
   const [accounts, setAccounts] = useLocalStorage<Account[]>("mm-accounts", []);
@@ -93,15 +159,12 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
-  const [idToken, setIdToken] = useState(() => window.localStorage.getItem("mm-google-id-token") ?? "");
-  const [authStatus, setAuthStatus] = useState("Sign in to continue.");
+  const [userEmail, setUserEmail] = useState(() => window.localStorage.getItem("mm-user-email") ?? "");
+  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem("mm-auth-token") ?? "");
+  const [authStatus, setAuthStatus] = useState("Enter email and password to continue.");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [gisReady, setGisReady] = useState(false);
   const [lastPulledToken, setLastPulledToken] = useState("");
-  const signInRef = useRef<HTMLDivElement | null>(null);
   const skipNextAutoPush = useRef(false);
-
-  const profile = useMemo(() => (idToken ? decodeJwtPayload(idToken) : {}), [idToken]);
 
   const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
   const totalLiabilities = accounts
@@ -129,67 +192,29 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (idToken) {
-      window.localStorage.setItem("mm-google-id-token", idToken);
+    if (userEmail) {
+      window.localStorage.setItem("mm-user-email", userEmail);
     } else {
-      window.localStorage.removeItem("mm-google-id-token");
+      window.localStorage.removeItem("mm-user-email");
     }
-  }, [idToken]);
+  }, [userEmail]);
 
   useEffect(() => {
-    if (window.google?.accounts?.id) {
-      setGisReady(true);
-      return;
+    if (authToken) {
+      window.localStorage.setItem("mm-auth-token", authToken);
+    } else {
+      window.localStorage.removeItem("mm-auth-token");
     }
+  }, [authToken]);
 
-    const scriptId = "google-identity-services";
-    if (document.getElementById(scriptId)) {
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = scriptId;
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setGisReady(true);
-    document.head.appendChild(script);
-  }, []);
-
-  useEffect(() => {
-    if (!gisReady || !GOOGLE_CLIENT_ID || !signInRef.current || !window.google?.accounts?.id || idToken) {
-      return;
-    }
-
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: (response) => {
-        if (!response.credential) {
-          setAuthStatus("Google sign-in failed.");
-          return;
-        }
-        setIdToken(response.credential);
-        setAuthStatus("Signed in. Loading your data...");
-      }
-    });
-
-    signInRef.current.innerHTML = "";
-    window.google.accounts.id.renderButton(signInRef.current, {
-      theme: "outline",
-      size: "large",
-      shape: "pill",
-      text: "signin_with"
-    });
-  }, [gisReady, idToken]);
-
-  async function syncRequest(action: "push" | "pull", token: string) {
+  async function syncRequest(action: "push" | "pull", email: string, token: string) {
     if (!SYNC_ENDPOINT) {
       throw new Error("Cloud sync endpoint is not configured.");
     }
 
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
-      body: JSON.stringify({ action, idToken: token, payload: snapshot })
+      body: JSON.stringify({ action, email, password: token, payload: snapshot })
     });
 
     if (!response.ok) {
@@ -216,10 +241,10 @@ export default function App() {
     setEditingTransactionId(null);
   }
 
-  async function pullFromCloud(token: string) {
+  async function pullFromCloud(email: string, token: string) {
     setIsSyncing(true);
     try {
-      const result = await syncRequest("pull", token);
+      const result = await syncRequest("pull", email, token);
       if (result.data) {
         skipNextAutoPush.current = true;
         importSnapshot(result.data);
@@ -233,14 +258,14 @@ export default function App() {
     }
   }
 
-  async function pushToCloud(token: string) {
+  async function pushToCloud(email: string, token: string) {
     if (!token || !SYNC_ENDPOINT) {
       return;
     }
     setIsSyncing(true);
     try {
-      await syncRequest("push", token);
-      setAuthStatus(`Synced for ${profile.email ?? "current user"}.`);
+      await syncRequest("push", email, token);
+      setAuthStatus(`Synced for ${email}.`);
     } catch (error) {
       setAuthStatus(error instanceof Error ? error.message : "Failed to sync cloud data.");
     } finally {
@@ -249,20 +274,20 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!idToken || !SYNC_ENDPOINT) {
+    if (!authToken || !userEmail || !SYNC_ENDPOINT) {
       return;
     }
-    if (lastPulledToken === idToken) {
+    if (lastPulledToken === authToken) {
       return;
     }
-    void pullFromCloud(idToken);
-  }, [idToken, lastPulledToken]);
+    void pullFromCloud(userEmail, authToken);
+  }, [authToken, userEmail, lastPulledToken]);
 
   useEffect(() => {
-    if (!idToken || !SYNC_ENDPOINT) {
+    if (!authToken || !userEmail || !SYNC_ENDPOINT) {
       return;
     }
-    if (lastPulledToken !== idToken) {
+    if (lastPulledToken !== authToken) {
       return;
     }
 
@@ -272,13 +297,13 @@ export default function App() {
     }
 
     const timer = window.setTimeout(() => {
-      void pushToCloud(idToken);
+      void pushToCloud(userEmail, authToken);
     }, 1800);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [snapshot, idToken, lastPulledToken]);
+  }, [snapshot, authToken, userEmail, lastPulledToken]);
 
   const editingTransaction = editingTransactionId
     ? transactions.find((t) => t.id === editingTransactionId)
@@ -388,22 +413,25 @@ export default function App() {
     setAccounts((current) => current.filter((a) => a.id !== id));
   }
 
-  if (!idToken) {
+  if (!authToken) {
     return (
       <div className="auth-gate-wrap">
         <div className="auth-gate-card panel">
           <p className="eyebrow">Money Manager</p>
           <h1>Sign in to access your personal dashboard</h1>
           <p className="auth-gate-text">
-            Your Google account identifies your data. Transactions and accounts are loaded from your Google Sheets data store.
+            Enter your email and password to access your money manager. Your data will be stored securely in Google Sheets.
           </p>
-
-          {GOOGLE_CLIENT_ID && SYNC_ENDPOINT ? <div ref={signInRef} className="auth-btn-wrap" /> : null}
-          {!GOOGLE_CLIENT_ID || !SYNC_ENDPOINT ? (
-            <p className="auth-gate-note">
-              App admin setup is incomplete. Missing {GOOGLE_CLIENT_ID ? "Sync Endpoint" : "Google Client ID"}.
-            </p>
-          ) : null}
+          <AuthLoginForm
+            appPassword={APP_PASSWORD}
+            syncEndpoint={SYNC_ENDPOINT}
+            onSuccess={(email, token) => {
+              setUserEmail(email);
+              setAuthToken(token);
+              setAuthStatus("Signed in. Loading your data...");
+            }}
+            onError={(message) => setAuthStatus(message)}
+          />
           <p className="auth-gate-note">{authStatus}</p>
         </div>
       </div>
@@ -416,8 +444,8 @@ export default function App() {
 
       <section className="panel session-strip">
         <div>
-          <strong>{profile.name ?? "Signed In User"}</strong>
-          <p>{profile.email ?? "Unknown email"}</p>
+          <strong>Money Manager</strong>
+          <p>{userEmail}</p>
         </div>
         <div className="session-strip-actions">
           <span>{isSyncing ? "Syncing..." : authStatus}</span>
@@ -425,7 +453,8 @@ export default function App() {
             type="button"
             className="ghost-btn"
             onClick={() => {
-              setIdToken("");
+              setUserEmail("");
+              setAuthToken("");
               setLastPulledToken("");
               setTransactions([]);
               setAccounts([]);

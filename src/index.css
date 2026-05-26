@@ -95,6 +95,54 @@ p {
   font-size: 0.84rem;
 }
 
+.auth-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.auth-login-form input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.auth-login-form input::placeholder {
+  color: var(--ink-3);
+}
+
+.auth-login-form input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  background: var(--surface-3);
+}
+
+.auth-login-form button {
+  padding: 10px 14px;
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius);
+  background: var(--accent-blue);
+  color: var(--bg);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-login-form button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.auth-login-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .session-strip {
   margin-bottom: 10px;
   padding: 10px 14px;

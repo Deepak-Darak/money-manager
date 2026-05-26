@@ -8,28 +8,32 @@ function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     const action = body.action;
-    const idToken = body.idToken;
+    const email = body.email;
+    const password = body.password;
     const payload = body.payload;
 
-    if (!action || !idToken) {
-      return jsonResponse({ ok: false, message: "Missing action or idToken" });
+    if (!action || !email || !password) {
+      return jsonResponse({ ok: false, message: "Missing action, email, or password" });
     }
 
-    const user = verifyGoogleIdToken(idToken);
-    if (!user || !user.email) {
-      return jsonResponse({ ok: false, message: "Invalid Google token" });
+    if (!verifyPassword(password)) {
+      return jsonResponse({ ok: false, message: "Invalid password" });
+    }
+
+    if (action === "verify") {
+      return jsonResponse({ ok: true, message: "Authentication successful" });
     }
 
     if (action === "push") {
       if (!payload) {
         return jsonResponse({ ok: false, message: "Missing payload" });
       }
-      upsertUserData(user.email, payload);
+      upsertUserData(email, payload);
       return jsonResponse({ ok: true, message: "Saved" });
     }
 
     if (action === "pull") {
-      const data = getUserData(user.email);
+      const data = getUserData(email);
       return jsonResponse({ ok: true, data: data });
     }
 
@@ -39,24 +43,12 @@ function doPost(e) {
   }
 }
 
-function verifyGoogleIdToken(idToken) {
-  const url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken);
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) {
-    return null;
+function verifyPassword(password) {
+  const expectedPassword = PropertiesService.getScriptProperties().getProperty("APP_PASSWORD");
+  if (!expectedPassword) {
+    return false;
   }
-
-  const tokenInfo = JSON.parse(response.getContentText());
-  const expectedClientId = PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID");
-
-  if (expectedClientId && tokenInfo.aud !== expectedClientId) {
-    return null;
-  }
-
-  return {
-    email: tokenInfo.email,
-    name: tokenInfo.name
-  };
+  return password === expectedPassword;
 }
 
 function getSheet_() {
