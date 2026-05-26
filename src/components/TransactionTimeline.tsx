@@ -65,30 +65,32 @@ export default function TransactionTimeline({
             {amountPrefix}
             {fmt.format(tx.amount)}
           </strong>
-          <button
-            type="button"
-            className="ghost-btn icon-btn"
-            aria-label="Edit transaction"
-            onClick={() => onEdit(tx)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 21l3.8-1 11-11a2.1 2.1 0 0 0 0-3l-.8-.8a2.1 2.1 0 0 0-3 0L3 16.2 2 20.9Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="m13.5 5.5 5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="ghost-btn icon-btn"
-            aria-label="Delete transaction"
-            onClick={() => onDelete(tx.id)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              <path d="M9 4h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              <path d="M7 7v11a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M10 11v6M14 11v6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="transaction-actions">
+            <button
+              type="button"
+              className="ghost-btn icon-btn"
+              aria-label="Edit transaction"
+              onClick={() => onEdit(tx)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 21l3.8-1 11-11a2.1 2.1 0 0 0 0-3l-.8-.8a2.1 2.1 0 0 0-3 0L3 16.2 2 20.9Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="m13.5 5.5 5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="ghost-btn icon-btn"
+              aria-label="Delete transaction"
+              onClick={() => onDelete(tx.id)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M9 4h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M7 7v11a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M10 11v6M14 11v6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
       </article>
     );

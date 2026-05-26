@@ -20,6 +20,23 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
         registration.waiting.postMessage({ type: "SKIP_WAITING" });
       }
 
+      // Check periodically and whenever the app comes back to foreground.
+      const updateCheckMs = 60 * 1000;
+      const updateInterval = window.setInterval(() => {
+        void registration.update();
+      }, updateCheckMs);
+
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          void registration.update();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      window.addEventListener("pagehide", () => {
+        window.clearInterval(updateInterval);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }, { once: true });
+
       registration.addEventListener("updatefound", () => {
         const newWorker = registration.installing;
         if (!newWorker) {
