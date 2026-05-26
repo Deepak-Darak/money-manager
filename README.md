@@ -38,6 +38,51 @@ npm run build
 npm run preview
 ```
 
+## Install on iPhone
+
+After deploying the site, you can install it from Safari like an app.
+
+1. Open the live URL in Safari on iPhone.
+2. Tap the Share button.
+3. Choose Add to Home Screen.
+4. Launch it from the home screen for a standalone app experience.
+
+Notes:
+
+1. The app now includes a web manifest, service worker, and iPhone web-app metadata.
+2. After each deploy, close and reopen the installed app if Safari is still showing an older cached version.
+
+## iOS App with Capacitor
+
+This project is wired for Capacitor so you can wrap the existing Vite app as a native iOS app.
+
+One-time setup:
+
+```bash
+npm install
+npx cap add ios
+```
+
+Open in Xcode:
+
+```bash
+npm run ios
+```
+
+Manual sync after web changes:
+
+```bash
+npm run build
+npm run cap:sync
+npm run cap:open:ios
+```
+
+Notes:
+
+1. GitHub Pages still uses `/money-manager/` as the web base path.
+2. Capacitor builds use a relative base path automatically.
+3. The generated `ios/` folder is created after `npx cap add ios`.
+
 ## Password Login + Google Sheets Sync
 
 The app now enforces sign-in first and users enter their email plus a shared app password. All data syncs through a central Google Sheet.

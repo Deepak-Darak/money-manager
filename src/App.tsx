@@ -43,6 +43,20 @@ function formatSyncError(error: unknown) {
   return error instanceof Error ? error.message : "Cloud sync failed.";
 }
 
+function isStandaloneDisplay() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
+function isIosSafari() {
+  const userAgent = window.navigator.userAgent;
+  const isIosDevice = /iPhone|iPad|iPod/i.test(userAgent);
+  const isSafariBrowser = /WebKit/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(userAgent);
+  return isIosDevice && isSafariBrowser;
+}
+
 function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
   const next = [...currentAccounts];
 
@@ -174,6 +188,8 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState("Enter email and password to continue.");
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastPulledToken, setLastPulledToken] = useState("");
+  const [showInstallHint, setShowInstallHint] = useState(false);
+  const [showLaunchSplash, setShowLaunchSplash] = useState(false);
   const skipNextAutoPush = useRef(false);
 
   const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
@@ -216,6 +232,29 @@ export default function App() {
       window.localStorage.removeItem("mm-auth-token");
     }
   }, [authToken]);
+
+  useEffect(() => {
+    const standalone = isStandaloneDisplay();
+    const shouldShowHint =
+      isIosSafari() &&
+      !standalone &&
+      window.localStorage.getItem("mm-ios-install-hint-dismissed") !== "1";
+
+    setShowInstallHint(shouldShowHint);
+
+    if (!standalone) {
+      return;
+    }
+
+    setShowLaunchSplash(true);
+    const timer = window.setTimeout(() => {
+      setShowLaunchSplash(false);
+    }, 1400);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   async function syncRequest(action: "push" | "pull", email: string, token: string) {
     if (!SYNC_ENDPOINT) {
@@ -422,33 +461,78 @@ export default function App() {
     setAccounts((current) => current.filter((a) => a.id !== id));
   }
 
-  if (!authToken) {
-    return (
-      <div className="auth-gate-wrap">
-        <div className="auth-gate-card panel">
-          <p className="eyebrow">Money Manager</p>
-          <h1>Sign in to access your personal dashboard</h1>
-          <p className="auth-gate-text">
-            Enter your email and password to access your money manager. Your data will be stored securely in Google Sheets.
-          </p>
-          <AuthLoginForm
-            syncEndpoint={SYNC_ENDPOINT}
-            onSuccess={(email, token) => {
-              setUserEmail(email);
-              setAuthToken(token);
-              setAuthStatus("Signed in. Loading your data...");
+  const installHint = showInstallHint ? (
+    <aside className="ios-install-hint" aria-label="Install on iPhone">
+      <div className="ios-install-card panel">
+        <p className="eyebrow">Install on iPhone</p>
+        <h3>Add this app to your home screen</h3>
+        <p>
+          In Safari, tap <strong>Share</strong> then <strong>Add to Home Screen</strong> to launch Money Manager like a native app.
+        </p>
+        <div className="ios-install-actions">
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => {
+              window.localStorage.setItem("mm-ios-install-hint-dismissed", "1");
+              setShowInstallHint(false);
             }}
-            onError={(message) => setAuthStatus(message)}
-          />
-          <p className="auth-gate-note">{authStatus}</p>
+          >
+            Dismiss
+          </button>
         </div>
       </div>
+    </aside>
+  ) : null;
+
+  const launchSplash = showLaunchSplash ? (
+    <div className="launch-splash" aria-hidden="true">
+      <div className="launch-splash-card">
+        <div className="launch-splash-mark">
+          <span>₹</span>
+        </div>
+        <div>
+          <p className="eyebrow">Money Manager</p>
+          <h2>Track cash flow with clarity</h2>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  if (!authToken) {
+    return (
+      <>
+        {launchSplash}
+        {installHint}
+        <div className="auth-gate-wrap">
+          <div className="auth-gate-card panel">
+            <p className="eyebrow">Money Manager</p>
+            <h1>Sign in to access your personal dashboard</h1>
+            <p className="auth-gate-text">
+              Enter your email and password to access your money manager. Your data will be stored securely in Google Sheets.
+            </p>
+            <AuthLoginForm
+              syncEndpoint={SYNC_ENDPOINT}
+              onSuccess={(email, token) => {
+                setUserEmail(email);
+                setAuthToken(token);
+                setAuthStatus("Signed in. Loading your data...");
+              }}
+              onError={(message) => setAuthStatus(message)}
+            />
+            <p className="auth-gate-note">{authStatus}</p>
+          </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="app-shell">
-      <div className="background-layers" aria-hidden="true" />
+    <>
+      {launchSplash}
+      {installHint}
+      <div className="app-shell">
+        <div className="background-layers" aria-hidden="true" />
 
       <section className="panel session-strip">
         <div>
@@ -477,9 +561,9 @@ export default function App() {
 
       <Navigation activeTab={activeTab} onChange={setActiveTab} />
 
-      {/* ── Dashboard ─────────────────────────────── */}
-      {activeTab === "dashboard" && (
-        <div className="tab-content">
+        {/* ── Dashboard ─────────────────────────────── */}
+        {activeTab === "dashboard" && (
+          <div className="tab-content">
           <section className="panel net-balance-card">
             <p>Current Total Balance (Assets - Liabilities)</p>
             <h2 className={currentTotalBalance >= 0 ? "plus" : "minus"}>
@@ -518,12 +602,12 @@ export default function App() {
               formTitle="Add Transaction"
             />
           </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* ── Transactions ──────────────────────────── */}
-      {activeTab === "transactions" && (
-        <div className="tab-content">
+        {/* ── Transactions ──────────────────────────── */}
+        {activeTab === "transactions" && (
+          <div className="tab-content">
           {editingTransaction && (
             <TransactionForm
               categories={categories}
@@ -547,12 +631,12 @@ export default function App() {
             onDelete={deleteTransaction}
             focusDate={focusDate}
           />
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* ── Accounts ──────────────────────────────── */}
-      {activeTab === "accounts" && (
-        <div className="tab-content">
+        {/* ── Accounts ──────────────────────────────── */}
+        {activeTab === "accounts" && (
+          <div className="tab-content">
           <AccountsPage
             accounts={accounts}
             accountTypes={accountTypes}
@@ -561,15 +645,16 @@ export default function App() {
             onDeleteType={deleteAccountType}
             onDelete={deleteAccount}
           />
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* ── Charts ────────────────────────────────── */}
-      {activeTab === "charts" && (
-        <div className="tab-content">
-          <ChartsDashboard transactions={transactions} categories={categories} />
-        </div>
-      )}
-    </div>
+        {/* ── Charts ────────────────────────────────── */}
+        {activeTab === "charts" && (
+          <div className="tab-content">
+            <ChartsDashboard transactions={transactions} categories={categories} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
