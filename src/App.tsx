@@ -112,9 +112,6 @@ function AuthLoginForm({ appPassword, syncEndpoint, onSuccess, onError }: AuthLo
     try {
       const response = await fetch(syncEndpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
         body: JSON.stringify({ action: "verify", email, password })
       });
 
@@ -234,9 +231,6 @@ export default function App() {
 
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
       body: JSON.stringify({ action, email, password: token, payload: snapshot })
     });
 
