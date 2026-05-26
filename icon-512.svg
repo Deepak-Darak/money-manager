@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Money Manager App Icon</title>
+  <desc id="desc">Rounded square icon showing a rupee symbol inside a wallet-inspired card.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f2940" />
+      <stop offset="52%" stop-color="#121821" />
+      <stop offset="100%" stop-color="#0b0e13" />
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8dd7ff" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="124" fill="url(#bg)" />
+  <circle cx="388" cy="124" r="54" fill="#fbbf24" opacity="0.14" />
+  <circle cx="118" cy="392" r="66" fill="#60a5fa" opacity="0.12" />
+  <rect x="122" y="136" width="268" height="238" rx="64" fill="#151b25" stroke="#2e3750" stroke-width="10" />
+  <rect x="156" y="174" width="200" height="38" rx="19" fill="url(#chip)" opacity="0.95" />
+  <path d="M200 248h104c30 0 52 22 52 52s-22 52-52 52h-70c-30 0-52-22-52-52h122" fill="none" stroke="#ecf4ff" stroke-linecap="round" stroke-linejoin="round" stroke-width="28" />
+  <path d="M214 220h88" stroke="#fbbf24" stroke-linecap="round" stroke-width="22" />
+  <path d="M174 394c22-26 46-38 74-38h68c27 0 52 13 70 38" fill="none" stroke="#34d399" stroke-linecap="round" stroke-width="22" opacity="0.9" />
+</svg>
