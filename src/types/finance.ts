@@ -39,3 +39,10 @@ export interface Account {
   note?: string;
   createdAt: string;
 }
+
+export interface AppDataSnapshot {
+  version: number;
+  transactions: Transaction[];
+  accounts: Account[];
+  accountTypes: AccountType[];
+}

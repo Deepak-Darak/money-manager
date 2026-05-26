@@ -131,7 +131,6 @@ export default function AccountsPage({
       {accountTypes.map((grp) => {
         const grpAccounts = visible.filter((a) => a.group === grp.id);
         const allTypeAccounts = accounts.filter((a) => a.group === grp.id);
-        const canDeleteType = allTypeAccounts.length === 0;
         if (grpAccounts.length === 0 && grp.defaultType !== tab) return null;
 
         const grpTotal = grpAccounts.reduce((s, a) => s + a.balance, 0);
@@ -148,14 +147,13 @@ export default function AccountsPage({
                 <button
                   type="button"
                   className="ghost-btn"
-                  disabled={!canDeleteType}
                   onClick={() => {
-                    const deleted = onDeleteType(grp.id);
-                    if (!deleted) {
-                      setTypeDeleteMessage("Delete all accounts in this type before removing the type.");
-                    } else {
-                      setTypeDeleteMessage("");
-                    }
+                    onDeleteType(grp.id);
+                    setTypeDeleteMessage(
+                      allTypeAccounts.length > 0
+                        ? "Type deleted and linked accounts removed."
+                        : "Type deleted."
+                    );
                   }}
                 >
                   Delete Type

@@ -725,9 +725,47 @@ textarea:focus {
 }
 
 .type-message {
-  color: var(--accent-amber);
+  color: var(--ink-2);
   font-size: 0.84rem;
   margin: 2px 0 0;
+}
+
+.cloud-sync-panel {
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border-top: 3px solid var(--accent-blue);
+}
+
+.cloud-sync-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.cloud-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cloud-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 9px 14px;
+}
+
+.cloud-status {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  margin-top: 10px;
+}
+
+.cloud-user {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  margin-top: 4px;
 }
 
 .account-group-title {
@@ -1004,6 +1042,30 @@ textarea:focus {
   .networth-banner {
     padding: 14px;
     gap: 10px;
+  }
+
+  .cloud-sync-panel {
+    padding: 12px;
+  }
+
+  .cloud-sync-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .cloud-actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .cloud-actions-row > * {
+    width: 100%;
+  }
+
+  .cloud-btn {
+    width: 100%;
+    padding: 11px 12px;
   }
 
   .networth-main h2 {

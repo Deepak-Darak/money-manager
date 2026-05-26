@@ -37,3 +37,23 @@ If your system cannot install dependencies, use GitHub Actions to build and host
 npm run build
 npm run preview
 ```
+
+## Google SSO + Google Sheets Sync Setup
+
+The app now includes a Cloud Sync section on Dashboard for Google login and cross-device data sync.
+
+1. Create a Google OAuth Client ID (Web application) in Google Cloud Console.
+2. Add your app URL (for example your GitHub Pages URL) to authorized JavaScript origins.
+3. Create a Google Sheet and open Extensions > Apps Script.
+4. Paste the script from `google-apps-script/Code.gs`.
+5. In Apps Script, set Script Properties:
+	1. `GOOGLE_CLIENT_ID` = your OAuth client ID
+6. Deploy Apps Script as Web App:
+	1. Execute as: Me
+	2. Who has access: Anyone
+7. Copy the deployed Web App URL.
+8. In app Dashboard > Cloud Sync:
+	1. Paste Google OAuth Client ID
+	2. Paste Apps Script Web App URL
+	3. Sign in with Google
+	4. Use Pull/Push buttons (auto-push also runs after local changes)

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
+import CloudSyncPanel from "./components/CloudSyncPanel";
 import ExpenseChart from "./components/ExpenseChart";
 import Navigation, { type Tab } from "./components/Navigation";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
@@ -8,7 +9,7 @@ import TransactionTimeline from "./components/TransactionTimeline";
 import { defaultAccountTypes } from "./data/accountGroups";
 import { categories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
-import type { Account, AccountType, Transaction } from "./types/finance";
+import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types/finance";
 
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -93,6 +94,13 @@ export default function App() {
     (t) => t.kind === "expense" && t.date.startsWith(dashboardMonth)
   );
 
+  const snapshot: AppDataSnapshot = {
+    version: 1,
+    transactions,
+    accounts,
+    accountTypes
+  };
+
   const editingTransaction = editingTransactionId
     ? transactions.find((t) => t.id === editingTransactionId)
     : undefined;
@@ -175,12 +183,33 @@ export default function App() {
   }
 
   function deleteAccountType(id: string) {
-    if (accounts.some((a) => a.group === id)) {
-      return false;
+    const accountIdsToRemove = accounts.filter((a) => a.group === id).map((a) => a.id);
+
+    if (accountIdsToRemove.length > 0) {
+      setAccounts((current) => current.filter((account) => account.group !== id));
+      setTransactions((current) =>
+        current.map((tx) => ({
+          ...tx,
+          accountId: tx.accountId && accountIdsToRemove.includes(tx.accountId) ? undefined : tx.accountId,
+          fromAccountId:
+            tx.fromAccountId && accountIdsToRemove.includes(tx.fromAccountId)
+              ? undefined
+              : tx.fromAccountId,
+          toAccountId:
+            tx.toAccountId && accountIdsToRemove.includes(tx.toAccountId) ? undefined : tx.toAccountId
+        }))
+      );
     }
 
     setAccountTypes((current) => current.filter((type) => type.id !== id));
     return true;
+  }
+
+  function importSnapshot(next: AppDataSnapshot) {
+    setTransactions(next.transactions ?? []);
+    setAccounts(next.accounts ?? []);
+    setAccountTypes(next.accountTypes?.length ? next.accountTypes : defaultAccountTypes);
+    setEditingTransactionId(null);
   }
 
   function deleteAccount(id: string) {
@@ -196,6 +225,8 @@ export default function App() {
       {/* ── Dashboard ─────────────────────────────── */}
       {activeTab === "dashboard" && (
         <div className="tab-content">
+          <CloudSyncPanel snapshot={snapshot} onImportSnapshot={importSnapshot} />
+
           <section className="panel net-balance-card">
             <p>Current Total Balance (Assets - Liabilities)</p>
             <h2 className={currentTotalBalance >= 0 ? "plus" : "minus"}>
