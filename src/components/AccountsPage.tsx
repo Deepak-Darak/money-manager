@@ -41,6 +41,7 @@ export default function AccountsPage({
   const [tab, setTab]           = useState<"asset" | "liability">("asset");
   const [showForm, setShowForm] = useState(false);
   const [showTypeForm, setShowTypeForm] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [form, setForm]         = useState(BLANK);
   const [typeForm, setTypeForm] = useState(BLANK_TYPE);
   const [typeDeleteMessage, setTypeDeleteMessage] = useState("");
@@ -128,6 +129,18 @@ export default function AccountsPage({
         </button>
       </div>
 
+      <button
+        type="button"
+        className="ghost-btn"
+        style={{ width: "fit-content", marginBottom: 12 }}
+        onClick={() => {
+          setDeleteMode((enabled) => !enabled);
+          setTypeDeleteMessage("");
+        }}
+      >
+        {deleteMode ? "Exit Delete Mode" : "Enable Delete Mode"}
+      </button>
+
       {/* ── Account groups ─────────────────────────────── */}
       {accountTypes.map((grp) => {
         const grpAccounts = visible.filter((a) => a.group === grp.id);
@@ -146,20 +159,22 @@ export default function AccountsPage({
               </div>
               <div className="account-group-actions">
                 <strong style={{ color: grp.color }}>{fmt.format(shownGroupTotal)}</strong>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={() => {
-                    onDeleteType(grp.id);
-                    setTypeDeleteMessage(
-                      allTypeAccounts.length > 0
-                        ? "Type deleted and linked accounts removed."
-                        : "Type deleted."
-                    );
-                  }}
-                >
-                  Delete Type
-                </button>
+                {deleteMode ? (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => {
+                      onDeleteType(grp.id);
+                      setTypeDeleteMessage(
+                        allTypeAccounts.length > 0
+                          ? "Type deleted and linked accounts removed."
+                          : "Type deleted."
+                      );
+                    }}
+                  >
+                    Delete Type 🗑
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -178,13 +193,15 @@ export default function AccountsPage({
                     <span className={ac.type === "asset" ? "plus" : "minus"}>
                       {fmt.format(ac.type === "liability" ? Math.abs(ac.balance) : ac.balance)}
                     </span>
-                    <button
-                      type="button"
-                      className="ghost-btn"
-                      onClick={() => onDelete(ac.id)}
-                    >
-                      Delete
-                    </button>
+                    {deleteMode ? (
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => onDelete(ac.id)}
+                      >
+                        🗑
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ))
