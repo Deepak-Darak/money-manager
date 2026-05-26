@@ -60,16 +60,43 @@ function isIosSafari() {
 function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
   const next = [...currentAccounts];
 
-  function adjustBalance(accountId: string | undefined, delta: number) {
+  function normalizeAccountTypeByBalance(account: Account): Account {
+    if (account.type === "asset" && account.balance < 0) {
+      return {
+        ...account,
+        type: "liability"
+      };
+    }
+
+    if (account.type === "liability" && account.balance > 0) {
+      return {
+        ...account,
+        type: "asset"
+      };
+    }
+
+    return account;
+  }
+
+  function adjustBalance(accountId: string | undefined, delta: number, useTypeAwareDelta = false) {
     if (!accountId) {
       return;
     }
     const index = next.findIndex((a) => a.id === accountId);
     if (index >= 0) {
+      const account = next[index];
+      const typedDelta = useTypeAwareDelta
+        ? account.type === "asset"
+          ? delta
+          : -delta
+        : delta;
+
       next[index] = {
-        ...next[index],
-        balance: next[index].balance + delta
+        ...account,
+        balance: account.balance + typedDelta
       };
+
+      next[index] = normalizeAccountTypeByBalance(next[index]);
     }
   }
 
@@ -84,8 +111,11 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
   }
 
   if (tx.kind === "transfer") {
-    adjustBalance(tx.fromAccountId, -tx.amount * direction);
-    adjustBalance(tx.toAccountId, tx.amount * direction);
+    // Transfer rules are type-aware:
+    // - Assets: outgoing subtracts, incoming adds.
+    // - Liabilities: outgoing adds, incoming subtracts.
+    adjustBalance(tx.fromAccountId, -tx.amount * direction, true);
+    adjustBalance(tx.toAccountId, tx.amount * direction, true);
   }
 
   return next;
@@ -414,9 +444,11 @@ export default function App() {
   }
 
   function addAccount(data: Omit<Account, "id" | "createdAt">) {
+    const normalizedType = data.balance < 0 ? "liability" : data.balance > 0 ? "asset" : data.type;
+
     setAccounts((current) => [
       ...current,
-      { ...data, id: makeId(), createdAt: new Date().toISOString() },
+      { ...data, type: normalizedType, id: makeId(), createdAt: new Date().toISOString() },
     ]);
   }
 
