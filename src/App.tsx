@@ -12,6 +12,42 @@ import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
 
+function normalizeEmail(input: string) {
+  return input.trim().toLowerCase();
+}
+
+function toHex(bytes: Uint8Array) {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function sha256Hex(input: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return toHex(new Uint8Array(digest));
+}
+
+async function hmacSha256Hex(key: string, message: string) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(key),
+    {
+      name: "HMAC",
+      hash: "SHA-256"
+    },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message));
+  return toHex(new Uint8Array(signature));
+}
+
+function makeNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return toHex(bytes);
+}
+
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -116,7 +152,7 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
 
 interface AuthLoginFormProps {
   syncEndpoint: string;
-  onSuccess: (email: string, token: string) => void;
+  onSuccess: (email: string, sessionToken: string) => void;
   onError: (message: string) => void;
 }
 
@@ -127,8 +163,9 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    
-    if (!email || !password) {
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !password) {
       onError("Email and password are required.");
       return;
     }
@@ -142,7 +179,7 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
     try {
       const response = await fetch(syncEndpoint, {
         method: "POST",
-        body: JSON.stringify({ action: "verify", email, password })
+        body: JSON.stringify({ action: "verify", email: normalizedEmail, password })
       });
 
       if (!response.ok) {
@@ -153,6 +190,8 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
       const result = (await response.json()) as {
         ok: boolean;
         message?: string;
+        email?: string;
+        sessionToken?: string;
       };
 
       if (!result.ok) {
@@ -160,7 +199,12 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
         return;
       }
 
-      onSuccess(email, password);
+      if (!result.sessionToken) {
+        onError("Missing session token from server.");
+        return;
+      }
+
+      onSuccess(result.email ?? normalizedEmail, result.sessionToken);
     } catch (error) {
       onError(error instanceof Error ? error.message : "Authentication error.");
     } finally {
@@ -206,7 +250,9 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
-  const [userEmail, setUserEmail] = useState(() => window.localStorage.getItem("mm-user-email") ?? "");
+  const [userEmail, setUserEmail] = useState(() =>
+    normalizeEmail(window.localStorage.getItem("mm-user-email") ?? "")
+  );
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem("mm-auth-token") ?? "");
   const [authStatus, setAuthStatus] = useState("Enter email and password to continue.");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -280,14 +326,32 @@ export default function App() {
     };
   }, []);
 
-  async function syncRequest(action: "push" | "pull", email: string, token: string) {
+  async function syncRequest(action: "push" | "pull", token: string) {
     if (!SYNC_ENDPOINT) {
       throw new Error("Cloud sync endpoint is not configured.");
     }
 
+    if (!token) {
+      throw new Error("Authentication required.");
+    }
+
+    const timestamp = Date.now();
+    const nonce = makeNonce();
+    const payload = action === "push" ? snapshot : null;
+    const payloadHash = await sha256Hex(JSON.stringify(payload));
+    const signingPayload = [action, String(timestamp), nonce, payloadHash].join("\n");
+    const signature = await hmacSha256Hex(token, signingPayload);
+
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
-      body: JSON.stringify({ action, email, password: token, payload: snapshot })
+      body: JSON.stringify({
+        action,
+        authToken: token,
+        timestamp,
+        nonce,
+        signature,
+        ...(action === "push" ? { payload: snapshot } : {})
+      })
     });
 
     if (!response.ok) {
@@ -298,6 +362,7 @@ export default function App() {
       ok: boolean;
       message?: string;
       data?: AppDataSnapshot;
+      email?: string;
     };
 
     if (!result.ok) {
@@ -317,7 +382,10 @@ export default function App() {
   async function pullFromCloud(email: string, token: string) {
     setIsSyncing(true);
     try {
-      const result = await syncRequest("pull", email, token);
+      const result = await syncRequest("pull", token);
+      if (result.email) {
+        setUserEmail(normalizeEmail(result.email));
+      }
       if (result.data) {
         skipNextAutoPush.current = true;
         importSnapshot(result.data);
@@ -325,7 +393,12 @@ export default function App() {
       setAuthStatus("Data loaded from Google Sheets.");
       setLastPulledToken(token);
     } catch (error) {
-      setAuthStatus(formatSyncError(error));
+      const message = formatSyncError(error);
+      if (/session expired|invalid session|authentication required/i.test(message)) {
+        setAuthToken("");
+        setLastPulledToken("");
+      }
+      setAuthStatus(message);
     } finally {
       setIsSyncing(false);
     }
@@ -337,10 +410,18 @@ export default function App() {
     }
     setIsSyncing(true);
     try {
-      await syncRequest("push", email, token);
+      const result = await syncRequest("push", token);
+      if (result.email) {
+        setUserEmail(normalizeEmail(result.email));
+      }
       setAuthStatus(`Synced for ${email}.`);
     } catch (error) {
-      setAuthStatus(formatSyncError(error));
+      const message = formatSyncError(error);
+      if (/session expired|invalid session|authentication required/i.test(message)) {
+        setAuthToken("");
+        setLastPulledToken("");
+      }
+      setAuthStatus(message);
     } finally {
       setIsSyncing(false);
     }
@@ -556,7 +637,7 @@ export default function App() {
             <AuthLoginForm
               syncEndpoint={SYNC_ENDPOINT}
               onSuccess={(email, token) => {
-                setUserEmail(email);
+                setUserEmail(normalizeEmail(email));
                 setAuthToken(token);
                 setAuthStatus("Signed in. Loading your data...");
               }}

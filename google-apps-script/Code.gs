@@ -1,4 +1,9 @@
 const SHEET_NAME = "money_manager_data";
+const REQUEST_SKEW_MS = 5 * 60 * 1000;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const NONCE_TTL_SECONDS = 10 * 60;
+const RATE_LIMIT_PER_MIN = 30;
+const RATE_LIMIT_PER_10_MIN = 120;
 
 function doGet() {
   return jsonResponse({ ok: true, message: "Money Manager Sync API is running" });
@@ -7,34 +12,14 @@ function doGet() {
 function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
-    const action = body.action;
-    const email = body.email;
-    const password = body.password;
-    const payload = body.payload;
-
-    if (!action || !email || !password) {
-      return jsonResponse({ ok: false, message: "Missing action, email, or password" });
-    }
-
-    if (!verifyPassword(password)) {
-      return jsonResponse({ ok: false, message: "Invalid password" });
-    }
+    const action = String(body.action || "").trim();
 
     if (action === "verify") {
-      return jsonResponse({ ok: true, message: "Authentication successful" });
+      return handleVerify_(body);
     }
 
-    if (action === "push") {
-      if (!payload) {
-        return jsonResponse({ ok: false, message: "Missing payload" });
-      }
-      upsertUserData(email, payload);
-      return jsonResponse({ ok: true, message: "Saved" });
-    }
-
-    if (action === "pull") {
-      const data = getUserData(email);
-      return jsonResponse({ ok: true, data: data });
+    if (action === "pull" || action === "push") {
+      return handleSignedDataRequest_(action, body);
     }
 
     return jsonResponse({ ok: false, message: "Unknown action" });
@@ -43,12 +28,213 @@ function doPost(e) {
   }
 }
 
-function verifyPassword(password) {
+function handleVerify_(body) {
+  const email = normalizeEmail_(body.email);
+  const password = String(body.password || "");
+
+  if (!email || !password) {
+    return jsonResponse({ ok: false, message: "Missing email or password" });
+  }
+
+  if (!isEmailAllowed_(email)) {
+    return jsonResponse({ ok: false, message: "Email is not allowed" });
+  }
+
+  if (isRateLimited_(email)) {
+    return jsonResponse({ ok: false, message: "Too many requests. Try again in a minute." });
+  }
+
+  if (!verifyPassword_(password)) {
+    return jsonResponse({ ok: false, message: "Invalid password" });
+  }
+
+  const session = issueSession_(email);
+  return jsonResponse({
+    ok: true,
+    message: "Authentication successful",
+    email: email,
+    sessionToken: session.token,
+    expiresAt: session.expiresAt
+  });
+}
+
+function handleSignedDataRequest_(action, body) {
+  const authToken = String(body.authToken || "");
+  const timestamp = Number(body.timestamp);
+  const nonce = String(body.nonce || "");
+  const signature = String(body.signature || "");
+  const payload = body.payload;
+
+  if (!authToken || !timestamp || !nonce || !signature) {
+    return jsonResponse({ ok: false, message: "Missing signed request fields" });
+  }
+
+  if (action === "push" && payload == null) {
+    return jsonResponse({ ok: false, message: "Missing payload" });
+  }
+
+  const session = validateSession_(authToken);
+  if (!session) {
+    return jsonResponse({ ok: false, message: "Session expired. Please sign in again." });
+  }
+
+  if (!isRateLimited_(session.email)) {
+    // proceed
+  } else {
+    return jsonResponse({ ok: false, message: "Too many requests. Try again in a minute." });
+  }
+
+  if (Math.abs(Date.now() - timestamp) > REQUEST_SKEW_MS) {
+    return jsonResponse({ ok: false, message: "Request expired" });
+  }
+
+  if (!consumeNonce_(session.tokenHash, nonce)) {
+    return jsonResponse({ ok: false, message: "Replay blocked" });
+  }
+
+  const payloadHash = sha256Hex_(JSON.stringify(payload == null ? null : payload));
+  const signingMessage = [action, String(timestamp), nonce, payloadHash].join("\n");
+  const expectedSignature = hmacSha256Hex_(authToken, signingMessage);
+  if (!safeEqual_(expectedSignature, signature.toLowerCase())) {
+    return jsonResponse({ ok: false, message: "Invalid signature" });
+  }
+
+  if (action === "push") {
+    upsertUserData(session.email, payload);
+    return jsonResponse({ ok: true, message: "Saved", email: session.email });
+  }
+
+  const data = getUserData(session.email);
+  return jsonResponse({ ok: true, data: data, email: session.email });
+}
+
+function verifyPassword_(password) {
   const expectedPassword = PropertiesService.getScriptProperties().getProperty("APP_PASSWORD");
   if (!expectedPassword) {
     return false;
   }
-  return password === expectedPassword;
+  return safeEqual_(expectedPassword, password);
+}
+
+function normalizeEmail_(input) {
+  return String(input || "").trim().toLowerCase();
+}
+
+function isEmailAllowed_(email) {
+  const allowedRaw = PropertiesService.getScriptProperties().getProperty("ALLOWED_EMAILS");
+  if (!allowedRaw) {
+    return true;
+  }
+  const allowed = allowedRaw
+    .split(",")
+    .map(function(item) {
+      return normalizeEmail_(item);
+    })
+    .filter(function(item) {
+      return item;
+    });
+  return allowed.indexOf(email) !== -1;
+}
+
+function issueSession_(email) {
+  const token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  const tokenHash = sha256Hex_(token);
+  const expiresAtMs = Date.now() + SESSION_TTL_MS;
+  const payload = {
+    email: email,
+    expiresAtMs: expiresAtMs
+  };
+
+  PropertiesService.getScriptProperties().setProperty(sessionKey_(tokenHash), JSON.stringify(payload));
+
+  return {
+    token: token,
+    expiresAt: new Date(expiresAtMs).toISOString()
+  };
+}
+
+function validateSession_(token) {
+  const tokenHash = sha256Hex_(token);
+  const key = sessionKey_(tokenHash);
+  const raw = PropertiesService.getScriptProperties().getProperty(key);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = JSON.parse(raw);
+  if (!parsed || !parsed.email || !parsed.expiresAtMs || Date.now() > Number(parsed.expiresAtMs)) {
+    PropertiesService.getScriptProperties().deleteProperty(key);
+    return null;
+  }
+
+  return {
+    email: normalizeEmail_(parsed.email),
+    tokenHash: tokenHash
+  };
+}
+
+function sessionKey_(tokenHash) {
+  return "SESSION_" + tokenHash;
+}
+
+function isRateLimited_(email) {
+  const cache = CacheService.getScriptCache();
+  const now = Date.now();
+
+  const minuteBucket = Math.floor(now / 60000);
+  const minuteKey = "RL_M_" + email + "_" + String(minuteBucket);
+  const minuteCount = Number(cache.get(minuteKey) || "0") + 1;
+  cache.put(minuteKey, String(minuteCount), 120);
+
+  const tenMinuteBucket = Math.floor(now / 600000);
+  const tenMinuteKey = "RL_10M_" + email + "_" + String(tenMinuteBucket);
+  const tenMinuteCount = Number(cache.get(tenMinuteKey) || "0") + 1;
+  cache.put(tenMinuteKey, String(tenMinuteCount), 12 * 60);
+
+  return minuteCount > RATE_LIMIT_PER_MIN || tenMinuteCount > RATE_LIMIT_PER_10_MIN;
+}
+
+function consumeNonce_(tokenHash, nonce) {
+  if (!nonce || nonce.length > 128) {
+    return false;
+  }
+  const cache = CacheService.getScriptCache();
+  const key = "NONCE_" + tokenHash + "_" + nonce;
+  if (cache.get(key)) {
+    return false;
+  }
+  cache.put(key, "1", NONCE_TTL_SECONDS);
+  return true;
+}
+
+function hmacSha256Hex_(key, value) {
+  return toHex_(Utilities.computeHmacSha256Signature(value, key));
+}
+
+function sha256Hex_(value) {
+  return toHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value));
+}
+
+function toHex_(bytes) {
+  return bytes
+    .map(function(b) {
+      const normalized = b < 0 ? b + 256 : b;
+      return ("0" + normalized.toString(16)).slice(-2);
+    })
+    .join("");
+}
+
+function safeEqual_(a, b) {
+  const aStr = String(a || "");
+  const bStr = String(b || "");
+  if (aStr.length !== bStr.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < aStr.length; i++) {
+    diff |= aStr.charCodeAt(i) ^ bStr.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 function getSheet_() {
