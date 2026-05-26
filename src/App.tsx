@@ -1,7 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
-import CloudSyncPanel from "./components/CloudSyncPanel";
 import ExpenseChart from "./components/ExpenseChart";
 import Navigation, { type Tab } from "./components/Navigation";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
@@ -28,6 +27,22 @@ function getCurrentMonth() {
 
 function slugify(input: string) {
   return input.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+interface GoogleJwtPayload {
+  email?: string;
+  name?: string;
+}
+
+function decodeJwtPayload(token: string): GoogleJwtPayload {
+  try {
+    const payload = token.split(".")[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(normalized);
+    return JSON.parse(json) as GoogleJwtPayload;
+  } catch {
+    return {};
+  }
 }
 
 function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, direction: 1 | -1) {
@@ -75,6 +90,17 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
+  const [clientId, setClientId] = useState(() => window.localStorage.getItem("mm-google-client-id") ?? "");
+  const [endpoint, setEndpoint] = useState(() => window.localStorage.getItem("mm-sheets-endpoint") ?? "");
+  const [idToken, setIdToken] = useState(() => window.localStorage.getItem("mm-google-id-token") ?? "");
+  const [authStatus, setAuthStatus] = useState("Sign in to continue.");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [gisReady, setGisReady] = useState(false);
+  const [lastPulledToken, setLastPulledToken] = useState("");
+  const signInRef = useRef<HTMLDivElement | null>(null);
+  const skipNextAutoPush = useRef(false);
+
+  const profile = useMemo(() => (idToken ? decodeJwtPayload(idToken) : {}), [idToken]);
 
   const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
   const totalLiabilities = accounts
@@ -100,6 +126,166 @@ export default function App() {
     accounts,
     accountTypes
   };
+
+  useEffect(() => {
+    window.localStorage.setItem("mm-google-client-id", clientId);
+  }, [clientId]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mm-sheets-endpoint", endpoint);
+  }, [endpoint]);
+
+  useEffect(() => {
+    if (idToken) {
+      window.localStorage.setItem("mm-google-id-token", idToken);
+    } else {
+      window.localStorage.removeItem("mm-google-id-token");
+    }
+  }, [idToken]);
+
+  useEffect(() => {
+    if (window.google?.accounts?.id) {
+      setGisReady(true);
+      return;
+    }
+
+    const scriptId = "google-identity-services";
+    if (document.getElementById(scriptId)) {
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = scriptId;
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setGisReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    if (!gisReady || !clientId || !signInRef.current || !window.google?.accounts?.id || idToken) {
+      return;
+    }
+
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: (response) => {
+        if (!response.credential) {
+          setAuthStatus("Google sign-in failed.");
+          return;
+        }
+        setIdToken(response.credential);
+        setAuthStatus("Signed in. Loading your data...");
+      }
+    });
+
+    signInRef.current.innerHTML = "";
+    window.google.accounts.id.renderButton(signInRef.current, {
+      theme: "outline",
+      size: "large",
+      shape: "pill",
+      text: "signin_with"
+    });
+  }, [gisReady, clientId, idToken]);
+
+  async function syncRequest(action: "push" | "pull", token: string) {
+    if (!endpoint) {
+      throw new Error("Add your Google Apps Script URL first.");
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ action, idToken: token, payload: snapshot })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Sync request failed (${response.status}).`);
+    }
+
+    const result = (await response.json()) as {
+      ok: boolean;
+      message?: string;
+      data?: AppDataSnapshot;
+    };
+
+    if (!result.ok) {
+      throw new Error(result.message || "Sync rejected.");
+    }
+
+    return result;
+  }
+
+  function importSnapshot(next: AppDataSnapshot) {
+    setTransactions(next.transactions ?? []);
+    setAccounts(next.accounts ?? []);
+    setAccountTypes(next.accountTypes?.length ? next.accountTypes : defaultAccountTypes);
+    setEditingTransactionId(null);
+  }
+
+  async function pullFromCloud(token: string) {
+    setIsSyncing(true);
+    try {
+      const result = await syncRequest("pull", token);
+      if (result.data) {
+        skipNextAutoPush.current = true;
+        importSnapshot(result.data);
+      }
+      setAuthStatus("Data loaded from Google Sheets.");
+      setLastPulledToken(token);
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Failed to load cloud data.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function pushToCloud(token: string) {
+    if (!token || !endpoint) {
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      await syncRequest("push", token);
+      setAuthStatus(`Synced for ${profile.email ?? "current user"}.`);
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Failed to sync cloud data.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!idToken || !endpoint) {
+      return;
+    }
+    if (lastPulledToken === idToken) {
+      return;
+    }
+    void pullFromCloud(idToken);
+  }, [idToken, endpoint, lastPulledToken]);
+
+  useEffect(() => {
+    if (!idToken || !endpoint) {
+      return;
+    }
+    if (lastPulledToken !== idToken) {
+      return;
+    }
+
+    if (skipNextAutoPush.current) {
+      skipNextAutoPush.current = false;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void pushToCloud(idToken);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [snapshot, idToken, endpoint, lastPulledToken]);
 
   const editingTransaction = editingTransactionId
     ? transactions.find((t) => t.id === editingTransactionId)
@@ -205,28 +391,83 @@ export default function App() {
     return true;
   }
 
-  function importSnapshot(next: AppDataSnapshot) {
-    setTransactions(next.transactions ?? []);
-    setAccounts(next.accounts ?? []);
-    setAccountTypes(next.accountTypes?.length ? next.accountTypes : defaultAccountTypes);
-    setEditingTransactionId(null);
-  }
-
   function deleteAccount(id: string) {
     setAccounts((current) => current.filter((a) => a.id !== id));
+  }
+
+  if (!idToken) {
+    return (
+      <div className="auth-gate-wrap">
+        <div className="auth-gate-card panel">
+          <p className="eyebrow">Money Manager</p>
+          <h1>Sign in to access your personal dashboard</h1>
+          <p className="auth-gate-text">
+            Your Google account identifies your data. Transactions and accounts are loaded from your Google Sheets data store.
+          </p>
+
+          <div className="auth-config-grid">
+            <label>
+              Google OAuth Client ID
+              <input
+                type="text"
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+                placeholder="Paste your Google Client ID"
+              />
+            </label>
+
+            <label>
+              Google Apps Script Web App URL
+              <input
+                type="url"
+                value={endpoint}
+                onChange={(event) => setEndpoint(event.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+              />
+            </label>
+          </div>
+
+          {clientId ? <div ref={signInRef} className="auth-btn-wrap" /> : null}
+          {!clientId ? <p className="auth-gate-note">Add Google Client ID to enable sign-in button.</p> : null}
+          <p className="auth-gate-note">{authStatus}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="app-shell">
       <div className="background-layers" aria-hidden="true" />
 
+      <section className="panel session-strip">
+        <div>
+          <strong>{profile.name ?? "Signed In User"}</strong>
+          <p>{profile.email ?? "Unknown email"}</p>
+        </div>
+        <div className="session-strip-actions">
+          <span>{isSyncing ? "Syncing..." : authStatus}</span>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => {
+              setIdToken("");
+              setLastPulledToken("");
+              setTransactions([]);
+              setAccounts([]);
+              setAccountTypes(defaultAccountTypes);
+              setAuthStatus("Signed out.");
+            }}
+          >
+            Sign Out
+          </button>
+        </div>
+      </section>
+
       <Navigation activeTab={activeTab} onChange={setActiveTab} />
 
       {/* ── Dashboard ─────────────────────────────── */}
       {activeTab === "dashboard" && (
         <div className="tab-content">
-          <CloudSyncPanel snapshot={snapshot} onImportSnapshot={importSnapshot} />
-
           <section className="panel net-balance-card">
             <p>Current Total Balance (Assets - Liabilities)</p>
             <h2 className={currentTotalBalance >= 0 ? "plus" : "minus"}>
