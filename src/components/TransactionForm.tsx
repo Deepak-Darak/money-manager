@@ -19,7 +19,7 @@ interface TransactionFormProps {
   onAddTransaction: (payload: NewTransactionInput) => void;
   initialValue?: Partial<NewTransactionInput>;
   submitLabel?: string;
-  title?: string;
+  formTitle?: string;
   onCancel?: () => void;
 }
 
@@ -33,11 +33,11 @@ export default function TransactionForm({
   onAddTransaction,
   initialValue,
   submitLabel = "Save Transaction",
-  title = "Add Transaction",
+  formTitle = "Add Transaction",
   onCancel
 }: TransactionFormProps) {
   const [kind, setKind] = useState<TransactionKind>("expense");
-  const [title, setTitle] = useState("");
+  const [transactionTitle, setTransactionTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(getTodayString);
   const [categoryId, setCategoryId] = useState("");
@@ -73,7 +73,7 @@ export default function TransactionForm({
     }
 
     setKind(initialValue.kind ?? "expense");
-    setTitle(initialValue.title ?? "");
+    setTransactionTitle(initialValue.title ?? "");
     setAmount(initialValue.amount !== undefined ? String(initialValue.amount) : "");
     setDate(initialValue.date ?? getTodayString());
     setCategoryId(initialValue.categoryId ?? "");
@@ -97,7 +97,7 @@ export default function TransactionForm({
       }
 
       onAddTransaction({
-        title: title.trim() || "Transfer",
+        title: transactionTitle.trim() || "Transfer",
         amount: parsedAmount,
         kind,
         fromAccountId,
@@ -106,7 +106,7 @@ export default function TransactionForm({
         note: note.trim() ? note.trim() : undefined
       });
 
-      setTitle("");
+      setTransactionTitle("");
       setAmount("");
       setNote("");
       setFromAccountId("");
@@ -114,12 +114,12 @@ export default function TransactionForm({
       return;
     }
 
-    if (!title.trim() || !categoryId) {
+    if (!transactionTitle.trim() || !categoryId) {
       return;
     }
 
     onAddTransaction({
-      title: title.trim(),
+      title: transactionTitle.trim(),
       amount: parsedAmount,
       kind,
       categoryId,
@@ -128,7 +128,7 @@ export default function TransactionForm({
       note: note.trim() ? note.trim() : undefined
     });
 
-    setTitle("");
+    setTransactionTitle("");
     setAmount("");
     setNote("");
     setAccountId("");
@@ -137,7 +137,7 @@ export default function TransactionForm({
   return (
     <form className="panel form-panel" onSubmit={handleSubmit}>
       <div className="panel-header-row">
-        <h2>{title}</h2>
+        <h2>{formTitle}</h2>
       </div>
 
       <div className="segmented-switch" role="radiogroup" aria-label="Transaction type">
@@ -169,8 +169,8 @@ export default function TransactionForm({
           Title
           <input
             type="text"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            value={transactionTitle}
+            onChange={(event) => setTransactionTitle(event.target.value)}
             placeholder={kind === "transfer" ? "e.g. Transfer to Savings" : "e.g. Groceries"}
           />
         </label>

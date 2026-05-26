@@ -34,7 +34,7 @@ export default function TransactionList({ transactions, categories, onDelete }: 
       ) : (
         <div className="transaction-list">
           {sorted.map((transaction) => {
-            const category = categoryMap.get(transaction.categoryId);
+            const category = categoryMap.get(transaction.categoryId ?? "");
 
             return (
               <article key={transaction.id} className="transaction-item">

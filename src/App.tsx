@@ -221,7 +221,7 @@ export default function App() {
             categories={categories}
             accounts={accounts}
             onAddTransaction={addTransaction}
-            title="Add Transaction"
+            formTitle="Add Transaction"
           />
         </div>
       )}
@@ -233,7 +233,7 @@ export default function App() {
             categories={categories}
             accounts={accounts}
             onAddTransaction={editingTransaction ? updateTransaction : addTransaction}
-            title={editingTransaction ? "Edit Transaction" : "Add Transaction"}
+            formTitle={editingTransaction ? "Edit Transaction" : "Add Transaction"}
             submitLabel={editingTransaction ? "Update Transaction" : "Save Transaction"}
             initialValue={editingTransaction}
             onCancel={editingTransaction ? () => setEditingTransactionId(null) : undefined}

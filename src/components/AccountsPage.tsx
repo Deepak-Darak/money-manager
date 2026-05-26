@@ -257,7 +257,7 @@ export default function AccountsPage({ accounts, accountTypes, onAdd, onAddType,
               Group
               <select
                 value={form.group}
-                onChange={(e) => setForm((f) => ({ ...f, group: e.target.value as AccountGroup }))}
+                onChange={(e) => setForm((f) => ({ ...f, group: e.target.value }))}
               >
                 {accountTypes.map((g) => (
                   <option key={g.id} value={g.id}>
