@@ -30,6 +30,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Validate required env
+        run: |
+          if [ -z "$VITE_GOOGLE_CLIENT_ID" ]; then
+            echo "Missing secret: VITE_GOOGLE_CLIENT_ID"
+            exit 1
+          fi
+          if [ -z "$VITE_SYNC_ENDPOINT" ]; then
+            echo "Missing secret: VITE_SYNC_ENDPOINT"
+            exit 1
+          fi
+
       - name: Build app
         run: npm run build
 
