@@ -223,9 +223,10 @@ export default function App() {
   const skipNextAutoPush = useRef(false);
 
   const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
-  const totalLiabilities = accounts
+  const rawLiabilityBalance = accounts
     .filter((a) => a.type === "liability")
     .reduce((sum, a) => sum + a.balance, 0);
+  const totalLiabilities = Math.abs(rawLiabilityBalance);
   const currentTotalBalance = totalAssets - totalLiabilities;
 
   const monthOptions = useMemo(() => {

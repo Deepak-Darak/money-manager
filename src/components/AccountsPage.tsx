@@ -54,9 +54,10 @@ export default function AccountsPage({
   const totalAssets = accounts
     .filter((a) => a.type === "asset")
     .reduce((s, a) => s + a.balance, 0);
-  const totalLiab = accounts
+  const rawLiab = accounts
     .filter((a) => a.type === "liability")
     .reduce((s, a) => s + a.balance, 0);
+  const totalLiab = Math.abs(rawLiab);
   const netWorth = totalAssets - totalLiab;
 
   function handleSubmit(e: FormEvent) {
