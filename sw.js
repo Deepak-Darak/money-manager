@@ -1,4 +1,4 @@
-const CACHE_NAME = "money-manager-v1";
+const CACHE_NAME = "money-manager-v2";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icon-192.svg", "./icon-512.svg", "./apple-splash.svg"];
 
 self.addEventListener("install", (event) => {
@@ -24,6 +24,23 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Keep HTML navigation fresh to avoid stale UI after deploys.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const responseClone = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          return cached || caches.match("./");
+        })
+    );
     return;
   }
 
