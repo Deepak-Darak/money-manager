@@ -38,22 +38,30 @@ npm run build
 npm run preview
 ```
 
-## Google SSO + Google Sheets Sync Setup
+## One-Click Google SSO + Central Google Sheets Setup
 
-The app now includes a Cloud Sync section on Dashboard for Google login and cross-device data sync.
+The app now enforces sign-in first and users only click Google sign-in. They are not asked to enter any config.
 
-1. Create a Google OAuth Client ID (Web application) in Google Cloud Console.
-2. Add your app URL (for example your GitHub Pages URL) to authorized JavaScript origins.
+Owner setup (one time):
+
+1. Create Google OAuth Client ID (Web app) in Google Cloud Console.
+2. Add your production URL (GitHub Pages URL) in authorized JavaScript origins.
 3. Create a Google Sheet and open Extensions > Apps Script.
-4. Paste the script from `google-apps-script/Code.gs`.
-5. In Apps Script, set Script Properties:
+4. Paste `google-apps-script/Code.gs`.
+5. In Apps Script Script Properties, set:
 	1. `GOOGLE_CLIENT_ID` = your OAuth client ID
-6. Deploy Apps Script as Web App:
+6. Deploy Apps Script Web App:
 	1. Execute as: Me
-	2. Who has access: Anyone
-7. Copy the deployed Web App URL.
-8. In app Dashboard > Cloud Sync:
-	1. Paste Google OAuth Client ID
-	2. Paste Apps Script Web App URL
-	3. Sign in with Google
-	4. Use Pull/Push buttons (auto-push also runs after local changes)
+	2. Access: Anyone
+7. Copy Web App URL.
+8. Set these Vite env variables in the project build environment:
+	1. `VITE_GOOGLE_CLIENT_ID`
+	2. `VITE_SYNC_ENDPOINT`
+
+Runtime behavior:
+
+1. User visits app -> sees Google sign-in gate.
+2. User clicks sign-in.
+3. App identifies user by Google account.
+4. App pulls that user's row from your central Google Sheet.
+5. App auto-syncs updates back to your sheet, enabling cross-device continuity.

@@ -10,6 +10,9 @@ import { categories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types/finance";
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
+
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -90,8 +93,6 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
-  const [clientId, setClientId] = useState(() => window.localStorage.getItem("mm-google-client-id") ?? "");
-  const [endpoint, setEndpoint] = useState(() => window.localStorage.getItem("mm-sheets-endpoint") ?? "");
   const [idToken, setIdToken] = useState(() => window.localStorage.getItem("mm-google-id-token") ?? "");
   const [authStatus, setAuthStatus] = useState("Sign in to continue.");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -128,14 +129,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    window.localStorage.setItem("mm-google-client-id", clientId);
-  }, [clientId]);
-
-  useEffect(() => {
-    window.localStorage.setItem("mm-sheets-endpoint", endpoint);
-  }, [endpoint]);
-
-  useEffect(() => {
     if (idToken) {
       window.localStorage.setItem("mm-google-id-token", idToken);
     } else {
@@ -164,12 +157,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!gisReady || !clientId || !signInRef.current || !window.google?.accounts?.id || idToken) {
+    if (!gisReady || !GOOGLE_CLIENT_ID || !signInRef.current || !window.google?.accounts?.id || idToken) {
       return;
     }
 
     window.google.accounts.id.initialize({
-      client_id: clientId,
+      client_id: GOOGLE_CLIENT_ID,
       callback: (response) => {
         if (!response.credential) {
           setAuthStatus("Google sign-in failed.");
@@ -187,14 +180,14 @@ export default function App() {
       shape: "pill",
       text: "signin_with"
     });
-  }, [gisReady, clientId, idToken]);
+  }, [gisReady, idToken]);
 
   async function syncRequest(action: "push" | "pull", token: string) {
-    if (!endpoint) {
-      throw new Error("Add your Google Apps Script URL first.");
+    if (!SYNC_ENDPOINT) {
+      throw new Error("Cloud sync endpoint is not configured.");
     }
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
       body: JSON.stringify({ action, idToken: token, payload: snapshot })
     });
@@ -241,7 +234,7 @@ export default function App() {
   }
 
   async function pushToCloud(token: string) {
-    if (!token || !endpoint) {
+    if (!token || !SYNC_ENDPOINT) {
       return;
     }
     setIsSyncing(true);
@@ -256,17 +249,17 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!idToken || !endpoint) {
+    if (!idToken || !SYNC_ENDPOINT) {
       return;
     }
     if (lastPulledToken === idToken) {
       return;
     }
     void pullFromCloud(idToken);
-  }, [idToken, endpoint, lastPulledToken]);
+  }, [idToken, lastPulledToken]);
 
   useEffect(() => {
-    if (!idToken || !endpoint) {
+    if (!idToken || !SYNC_ENDPOINT) {
       return;
     }
     if (lastPulledToken !== idToken) {
@@ -285,7 +278,7 @@ export default function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [snapshot, idToken, endpoint, lastPulledToken]);
+  }, [snapshot, idToken, lastPulledToken]);
 
   const editingTransaction = editingTransactionId
     ? transactions.find((t) => t.id === editingTransactionId)
@@ -405,30 +398,12 @@ export default function App() {
             Your Google account identifies your data. Transactions and accounts are loaded from your Google Sheets data store.
           </p>
 
-          <div className="auth-config-grid">
-            <label>
-              Google OAuth Client ID
-              <input
-                type="text"
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                placeholder="Paste your Google Client ID"
-              />
-            </label>
-
-            <label>
-              Google Apps Script Web App URL
-              <input
-                type="url"
-                value={endpoint}
-                onChange={(event) => setEndpoint(event.target.value)}
-                placeholder="https://script.google.com/macros/s/.../exec"
-              />
-            </label>
-          </div>
-
-          {clientId ? <div ref={signInRef} className="auth-btn-wrap" /> : null}
-          {!clientId ? <p className="auth-gate-note">Add Google Client ID to enable sign-in button.</p> : null}
+          {GOOGLE_CLIENT_ID && SYNC_ENDPOINT ? <div ref={signInRef} className="auth-btn-wrap" /> : null}
+          {!GOOGLE_CLIENT_ID || !SYNC_ENDPOINT ? (
+            <p className="auth-gate-note">
+              App admin setup is incomplete. Missing {GOOGLE_CLIENT_ID ? "Sync Endpoint" : "Google Client ID"}.
+            </p>
+          ) : null}
           <p className="auth-gate-note">{authStatus}</p>
         </div>
       </div>
