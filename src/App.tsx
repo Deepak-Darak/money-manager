@@ -108,20 +108,28 @@ function AuthLoginForm({ appPassword, syncEndpoint, onSuccess, onError }: AuthLo
       return;
     }
 
-    if (password !== appPassword) {
-      onError("Incorrect password.");
-      return;
-    }
-
     setIsLoading(true);
     try {
       const response = await fetch(syncEndpoint, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({ action: "verify", email, password })
       });
 
       if (!response.ok) {
         onError("Authentication failed.");
+        return;
+      }
+
+      const result = (await response.json()) as {
+        ok: boolean;
+        message?: string;
+      };
+
+      if (!result.ok) {
+        onError(result.message || "Incorrect password.");
         return;
       }
 
@@ -226,6 +234,9 @@ export default function App() {
 
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({ action, email, password: token, payload: snapshot })
     });
 
@@ -335,7 +346,6 @@ export default function App() {
 
     setAccounts((current) => applyTransactionEffect(current, nextTransaction, 1));
     setFocusDate(payload.date);
-    setActiveTab("transactions");
   }
 
   function updateTransaction(payload: NewTransactionInput) {
@@ -514,12 +524,14 @@ export default function App() {
             label={dashboardMonth}
           />
 
-          <TransactionForm
-            categories={categories}
-            accounts={accounts}
-            onAddTransaction={addTransaction}
-            formTitle="Add Transaction"
-          />
+          <div className="dashboard-form-section">
+            <TransactionForm
+              categories={categories}
+              accounts={accounts}
+              onAddTransaction={addTransaction}
+              formTitle="Add Transaction"
+            />
+          </div>
         </div>
       )}
 

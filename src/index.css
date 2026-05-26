@@ -143,6 +143,10 @@ p {
   cursor: not-allowed;
 }
 
+.dashboard-form-section {
+  margin-top: 18px;
+}
+
 .session-strip {
   margin-bottom: 10px;
   padding: 10px 14px;
