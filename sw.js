@@ -1,5 +1,11 @@
-const CACHE_NAME = "money-manager-v2";
+const CACHE_NAME = "money-manager-v3";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icon-192.svg", "./icon-512.svg", "./apple-splash.svg"];
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
