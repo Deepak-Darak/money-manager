@@ -1742,25 +1742,120 @@ textarea:focus {
 }
 
 @media (max-width: 640px) {
+  .import-overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
   .import-modal {
-    padding: 16px;
-    max-height: 95vh;
+    width: 100%;
+    max-height: 92vh;
+    padding: 14px;
+    border-radius: 16px 16px 0 0;
   }
 
   .import-dropzone {
-    padding: 28px 16px;
+    padding: 22px 14px;
+    margin-bottom: 12px;
+  }
+
+  .import-dropzone svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .import-dropzone-label {
+    font-size: 0.88rem;
+  }
+
+  .import-tip {
+    font-size: 0.74rem;
+    line-height: 1.42;
+  }
+
+  .import-table-wrap {
+    margin: 0;
+    padding: 0;
   }
 
   .import-table {
+    display: block;
     font-size: 0.76rem;
+  }
+
+  .import-table thead {
+    display: none;
+  }
+
+  .import-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .import-table tbody tr {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(30, 35, 48, 0.75);
+    padding: 10px;
+  }
+
+  .import-table tbody td {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(42, 48, 69, 0.45);
+  }
+
+  .import-table tbody td:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .import-table tbody td::before {
+    content: attr(data-label);
+    color: var(--ink-3);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+  }
+
+  .import-table tbody td[data-label="Select"] {
+    grid-template-columns: 1fr;
+    padding-bottom: 8px;
+  }
+
+  .import-table tbody td[data-label="Select"]::before {
+    display: none;
   }
 
   .import-cell-input {
-    font-size: 0.76rem;
-    padding: 4px 6px;
+    font-size: 0.78rem;
+    padding: 7px 8px;
+    min-height: 34px;
   }
 
-  .import-desc-input {
-    min-width: 100px;
+  .import-desc-input,
+  .import-amount-input {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .import-footer {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg, rgba(22, 26, 35, 0.85), var(--surface));
+    padding-top: 10px;
+    margin-top: 12px;
+  }
+
+  .import-confirm-btn,
+  .import-footer .ghost-btn {
+    padding: 10px 12px;
+    font-size: 0.82rem;
   }
 }

@@ -867,10 +867,10 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             <tbody>
               {staged.map((tx) => (
                 <tr key={tx._id} className={tx.selected ? "import-row-on" : "import-row-off"}>
-                  <td>
+                  <td data-label="Select">
                     <input type="checkbox" checked={tx.selected} onChange={() => toggleRow(tx._id)} />
                   </td>
-                  <td>
+                  <td data-label="Date">
                     <input
                       type="date"
                       className="import-cell-input"
@@ -878,7 +878,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       onChange={(e) => updateRow(tx._id, { date: e.target.value })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Description">
                     <input
                       type="text"
                       className="import-cell-input import-desc-input"
@@ -886,7 +886,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       onChange={(e) => updateRow(tx._id, { title: e.target.value })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Type">
                     <select
                       className="import-cell-input"
                       value={tx.kind}
@@ -900,7 +900,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       <option value="income">Income</option>
                     </select>
                   </td>
-                  <td>
+                  <td data-label="Amount">
                     <input
                       type="number"
                       className="import-cell-input import-amount-input"
@@ -910,7 +910,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       onChange={(e) => updateRow(tx._id, { amount: parseFloat(e.target.value) || 0 })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Category">
                     <select
                       className="import-cell-input"
                       value={tx.categoryId}
@@ -921,7 +921,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       ))}
                     </select>
                   </td>
-                  <td>
+                  <td data-label="Account">
                     <select
                       className="import-cell-input"
                       value={tx.accountId}
