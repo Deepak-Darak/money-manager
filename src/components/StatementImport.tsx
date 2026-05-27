@@ -7,7 +7,7 @@ interface PdfCell { x: number; y: number; text: string; }
 
 // Regex patterns used exclusively by the PDF parser
 // Date: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD MMM YYYY, DD MMM YY
-const PDF_DATE_RX = /\b(\d{1,2}[\/-\.]\d{1,2}[\/-\.]\d{2,4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
+const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
 // Monetary amount: 1,250.00 or 12,50,000.00 or 250.00
 const PDF_AMOUNT_RX = /(\d{1,3}(?:,\d{2,3})*\.\d{2})/g;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
@@ -484,7 +484,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         // Phase 1 (column-header based) is tried first.
         // If it finds fewer than 3 transactions (common with noisy credit card
         // PDFs full of ads and account info), Phase 2 (pattern-based) takes over.
-        let pdfResult: { rows: Record<string, unknown>[]; rawHeaders: string[]; lineGroups: PdfCell[][] };
+        let pdfResult: { rows: Record<string, unknown>[]; rawHeaders: string[]; lineGroups: PdfCell[][] } | null = null;
         let pdfPassword: string | undefined;
         let unlocked = false;
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -521,6 +521,12 @@ export default function StatementImport({ accounts, categories, onImport, onClos
 
         if (!unlocked) {
           setError("Could not unlock PDF after multiple attempts. Please re-check the password and try again.");
+          setIsParsing(false);
+          return;
+        }
+
+        if (!pdfResult) {
+          setError("Failed to read PDF data after unlock. Please try again.");
           setIsParsing(false);
           return;
         }
