@@ -37,26 +37,45 @@ async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
   if (password) {
     docParams.password = password;
     docParams.userPassword = password; // Try both for compatibility
+    console.log("[PDF] Attempting to load with password");
+  } else {
+    console.log("[PDF] Attempting to load without password");
   }
 
-  const pdf = await pdfjs.getDocument(docParams).promise;
+  let pdf;
+  try {
+    pdf = await pdfjs.getDocument(docParams).promise;
+    console.log("[PDF] Successfully loaded document with", pdf.numPages, "pages");
+  } catch (docErr) {
+    console.error("[PDF] Document loading failed:", docErr);
+    throw docErr;
+  }
   const allCells: PdfCell[] = [];
   let pageYOffset = 0;
 
   for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    const vp = page.getViewport({ scale: 1 });
-    const tc = await page.getTextContent();
-    for (const item of tc.items) {
-      if (!("str" in item) || !item.str.trim()) continue;
-      const x = Math.round(item.transform[4]);
-      const y = Math.round(vp.height - item.transform[5]) + pageYOffset;
-      allCells.push({ x, y, text: item.str.trim() });
+    try {
+      const page = await pdf.getPage(p);
+      const vp = page.getViewport({ scale: 1 });
+      const tc = await page.getTextContent();
+      console.log("[PDF] Page", p, "extracted", tc.items.length, "items");
+      for (const item of tc.items) {
+        if (!("str" in item) || !item.str.trim()) continue;
+        const x = Math.round(item.transform[4]);
+        const y = Math.round(vp.height - item.transform[5]) + pageYOffset;
+        allCells.push({ x, y, text: item.str.trim() });
+      }
+      pageYOffset += Math.ceil(vp.height) + 30;
+    } catch (pageErr) {
+      console.error("[PDF] Error extracting page", p, ":", pageErr);
+      throw pageErr;
     }
-    pageYOffset += Math.ceil(vp.height) + 30;
   }
 
-  if (allCells.length === 0) return { rows: [], rawHeaders: [], lineGroups: [] };
+  if (allCells.length === 0) {
+    console.warn("[PDF] No cells extracted from any page");
+    return { rows: [], rawHeaders: [], lineGroups: [] };
+  }
 
   allCells.sort((a, b) => a.y - b.y || a.x - b.x);
   const lineGroups: PdfCell[][] = [];
@@ -575,8 +594,11 @@ export default function StatementImport({ accounts, categories, onImport, onClos
 
         // Priority 1: PhonePe statement detection and extraction
         try {
+          console.log("[PDF] Checking if PhonePe statement...", pdfResult.lineGroups.length, "line groups");
           if (isPhonePeStatement(pdfResult.lineGroups)) {
+            console.log("[PDF] Detected PhonePe statement, extracting...");
             const phonepeRawTxs = extractPhonePeTransactions(pdfResult.lineGroups);
+            console.log("[PDF] PhonePe extraction completed:", phonepeRawTxs.length, "transactions");
             if (phonepeRawTxs.length > 0) {
               const phonepeStaged = phonepeRawTxs.map((tx) => {
                 const { categoryId, kind: catKind } = autoCategory(tx.title, tx.kind);
@@ -604,18 +626,22 @@ export default function StatementImport({ accounts, categories, onImport, onClos
 
         // Priority 2: Column-based extraction (clean structured tables)
         if (pdfResult.rows.length >= 3) {
+          console.log("[PDF] Using column-based extraction with", pdfResult.rows.length, "rows");
           // Phase 1 succeeded — feed into the existing column-based pipeline below
           rows = pdfResult.rows;
           headers = pdfResult.rawHeaders;
         } else {
           // Priority 3: Pattern-based extraction (generic noisy PDFs)
+          console.log("[PDF] PhonePe not detected or produced 0 transactions, trying pattern-based extraction...");
           const patternTxs = patternExtractTransactions(pdfResult.lineGroups, defaultAccountId);
+          console.log("[PDF] Pattern extraction found", patternTxs.length, "transactions");
           if (patternTxs.length > 0) {
             setStaged(patternTxs);
             setStep("review");
             setIsParsing(false);
             return;
           }
+          console.error("[PDF] All extraction methods failed, no transactions found");
           setError(
             "No transactions found in this PDF. " +
             "The parser searched for date + amount patterns across every line but found nothing. " +
@@ -661,8 +687,9 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       setStaged(txs);
       setStep("review");
     } catch (err) {
-      setError("Failed to read file. Make sure it is a valid PDF, CSV, or Excel (.xlsx) file.");
-      console.error(err);
+      const errorMsg = String(err instanceof Error ? err.message : err);
+      console.error("[IMPORT] Final error:", err);
+      setError(`Failed to read file: ${errorMsg || "Invalid PDF, CSV, or Excel (.xlsx) file."}`);
     }
     setIsParsing(false);
   }
