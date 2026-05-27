@@ -147,6 +147,19 @@ function isPdfPasswordError(err: unknown): boolean {
   );
 }
 
+function getPdfErrorDetails(err: unknown): { name: string; code: string; message: string; reason: string } {
+  if (!err) {
+    return { name: "Unknown", code: "", message: "", reason: "" };
+  }
+  const maybeErr = err as { name?: string; code?: number | string; message?: string; reason?: string };
+  return {
+    name: String(maybeErr?.name ?? "Unknown"),
+    code: String(maybeErr?.code ?? ""),
+    message: String(maybeErr?.message ?? ""),
+    reason: String(maybeErr?.reason ?? ""),
+  };
+}
+
 /**
  * Extract the transaction amount and expense/income direction from a line of text.
  *
@@ -551,7 +564,17 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             unlocked = true;
             break;
           } catch (pdfErr) {
-            if (isPdfPasswordError(pdfErr)) {
+            const details = getPdfErrorDetails(pdfErr);
+            const shouldAskPassword = isPdfPasswordError(pdfErr) || (!pdfPassword && attempt === 0);
+
+            if (shouldAskPassword) {
+              console.warn("[PDF] Unlock attempt failed", {
+                attempt: attempt + 1,
+                name: details.name,
+                code: details.code,
+                message: details.message,
+                reason: details.reason,
+              });
               const entered = window.prompt(
                 attempt === 0
                   ? "This PDF is password-protected. Enter the PDF password to import transactions:"
@@ -567,8 +590,14 @@ export default function StatementImport({ accounts, categories, onImport, onClos
               pdfPassword = entered;
             } else {
               // Non-password error; detailed logging for debugging
-              const errMsg = (pdfErr as { message?: string; name?: string })?.message || String(pdfErr);
-              console.error("PDF read error:", errMsg, pdfErr);
+              const errMsg = details.message || details.reason || `${details.name}${details.code ? ` (code ${details.code})` : ""}`;
+              console.error("PDF read error:", {
+                name: details.name,
+                code: details.code,
+                message: details.message,
+                reason: details.reason,
+                raw: pdfErr,
+              });
               setError(
                 `Could not read the PDF: ${errMsg.slice(0, 80)}. This may be a scanned image PDF. ` +
                 `Try downloading the statement as CSV or Excel from your bank instead.`
