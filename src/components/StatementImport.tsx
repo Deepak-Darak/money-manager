@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Account, Category } from "../types/finance";
+import { isPhonePeStatement, extractPhonePeTransactions } from "../utils/phonepeExtractor";
 
 // ── PDF text item with position ───────────────────────────────────────────
 interface PdfCell { x: number; y: number; text: string; }
@@ -554,12 +555,37 @@ export default function StatementImport({ accounts, categories, onImport, onClos
           return;
         }
 
+        // Priority 1: PhonePe statement detection and extraction
+        if (isPhonePeStatement(pdfResult.lineGroups)) {
+          const phonepeRawTxs = extractPhonePeTransactions(pdfResult.lineGroups);
+          if (phonepeRawTxs.length > 0) {
+            const phonepeStaged = phonepeRawTxs.map((tx) => {
+              const { categoryId, kind: catKind } = autoCategory(tx.title, tx.kind);
+              return {
+                _id: makeId(),
+                selected: tx.confidence > 0.8,
+                date: tx.date,
+                title: tx.title,
+                amount: tx.amount,
+                kind: tx.kind,
+                categoryId: catKind === tx.kind ? categoryId : (tx.kind === "income" ? "other-income" : "other-expense"),
+                accountId: defaultAccountId,
+              };
+            });
+            setStaged(phonepeStaged);
+            setStep("review");
+            setIsParsing(false);
+            return;
+          }
+        }
+
+        // Priority 2: Column-based extraction (clean structured tables)
         if (pdfResult.rows.length >= 3) {
           // Phase 1 succeeded — feed into the existing column-based pipeline below
           rows = pdfResult.rows;
           headers = pdfResult.rawHeaders;
         } else {
-          // Phase 2: pattern-based extraction for credit card statements
+          // Priority 3: Pattern-based extraction (generic noisy PDFs)
           const patternTxs = patternExtractTransactions(pdfResult.lineGroups, defaultAccountId);
           if (patternTxs.length > 0) {
             setStaged(patternTxs);
