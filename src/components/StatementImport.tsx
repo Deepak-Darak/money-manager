@@ -19,7 +19,7 @@ const NOISE_RX = /page\s*\d+(?:\s*of\s*\d+)?|statement\s*(date|period|summary|nu
  * Works well when the PDF has a clean table with a recognisable header row.
  * Also returns the raw lineGroups so Phase 2 can reuse the already-extracted text.
  */
-async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
+async function parsePdfToRows(pdfBytes: Uint8Array, password?: string): Promise<{
   rows: Record<string, unknown>[];
   rawHeaders: string[];
   lineGroups: PdfCell[][];
@@ -32,7 +32,7 @@ async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
   // Attempt to load PDF with password if provided
   // pdfjs accepts both 'password' and 'userPassword' parameters for compatibility
   const docParams: any = {
-    data: new Uint8Array(buffer),
+    data: pdfBytes,
   };
   if (password) {
     docParams.password = password;
@@ -546,6 +546,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
     try {
       const buffer = await file.arrayBuffer();
       const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const pdfSourceBytes = isPdf ? new Uint8Array(buffer) : null;
 
       let rows: Record<string, unknown>[];
       let headers: string[];
@@ -560,7 +561,9 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         let unlocked = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            pdfResult = await parsePdfToRows(buffer, pdfPassword);
+            // Use a fresh copy for each attempt because pdfjs may detach transferred buffers.
+            const attemptBytes = pdfSourceBytes ? pdfSourceBytes.slice() : new Uint8Array(buffer);
+            pdfResult = await parsePdfToRows(attemptBytes, pdfPassword);
             unlocked = true;
             break;
           } catch (pdfErr) {
