@@ -350,7 +350,7 @@ export default function App() {
     setEditingTransactionId(null);
   }
 
-  async function pullFromCloud(token: string) {
+  async function pullFromCloud(email: string, token: string) {
     setIsSyncing(true);
     try {
       const result = await syncRequest("pull", email, token);
@@ -405,7 +405,7 @@ export default function App() {
     if (lastPulledToken === authToken) {
       return;
     }
-    void pullFromCloud(authToken);
+    void pullFromCloud(userEmail, authToken);
   }, [authToken, userEmail, lastPulledToken]);
 
   useEffect(() => {
