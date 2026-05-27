@@ -84,6 +84,7 @@ export function extractPhonePeTransactions(
       .replace(/debited?\s+from\s+\w+/gi, "")
       .replace(/debit\s+inr|credit\s+inr/gi, "")
       .replace(/xx\d{4}/gi, "")
+      .replace(/No\s*:/gi, "") // Remove 'No :' artifact
       .replace(/\s{2,}/g, " ")
       .trim();
     if (desc.length < 2) desc = "UPI Transfer";
