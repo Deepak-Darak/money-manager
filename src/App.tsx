@@ -3,6 +3,7 @@ import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
 import ExpenseChart from "./components/ExpenseChart";
 import Navigation, { type Tab } from "./components/Navigation";
+import StatementImport, { type ImportedTx } from "./components/StatementImport";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
 import TransactionTimeline from "./components/TransactionTimeline";
 import { defaultAccountTypes } from "./data/accountGroups";
@@ -216,6 +217,7 @@ export default function App() {
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
   const [showBalance, setShowBalance] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [userEmail, setUserEmail] = useState(() =>
     normalizeEmail(window.localStorage.getItem("mm-user-email") ?? "")
   );
@@ -555,6 +557,26 @@ export default function App() {
     setAccounts((current) => current.filter((a) => a.id !== id));
   }
 
+  function importTransactions(txs: ImportedTx[]) {
+    const now = new Date().toISOString();
+    const newTxs = txs.map((tx) => ({
+      ...tx,
+      id: makeId(),
+      createdAt: now,
+    }));
+    setTransactions((current) => [
+      ...newTxs,
+      ...current,
+    ]);
+    setAccounts((current) => {
+      let next = current;
+      for (const tx of newTxs) {
+        next = applyTransactionEffect(next, tx, 1);
+      }
+      return next;
+    });
+  }
+
   const installHint = showInstallHint ? (
     <aside className="ios-install-hint" aria-label="Install on iPhone">
       <div className="ios-install-card panel">
@@ -625,6 +647,14 @@ export default function App() {
     <>
       {launchSplash}
       {installHint}
+      {showImport && (
+        <StatementImport
+          accounts={accounts}
+          categories={categories}
+          onImport={importTransactions}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       <div className="app-shell">
         <div className="background-layers" aria-hidden="true" />
 
@@ -635,6 +665,17 @@ export default function App() {
         </div>
         <div className="session-strip-actions">
           <span>{isSyncing ? "Syncing..." : authStatus}</span>
+          <button
+            type="button"
+            className="ghost-btn import-trigger-btn"
+            onClick={() => setShowImport(true)}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style={{ marginRight: "5px", verticalAlign: "middle" }}>
+              <path d="M12 2v14M5 9l7 7 7-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 19h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            Import
+          </button>
           <button
             type="button"
             className="ghost-btn"
