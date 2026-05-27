@@ -29,10 +29,17 @@ async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
   pdfjs.GlobalWorkerOptions.workerSrc =
     `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
-  const pdf = await pdfjs.getDocument({
+  // Attempt to load PDF with password if provided
+  // pdfjs accepts both 'password' and 'userPassword' parameters for compatibility
+  const docParams: any = {
     data: new Uint8Array(buffer),
-    ...(password ? { password } : {}),
-  }).promise;
+  };
+  if (password) {
+    docParams.password = password;
+    docParams.userPassword = password; // Try both for compatibility
+  }
+
+  const pdf = await pdfjs.getDocument(docParams).promise;
   const allCells: PdfCell[] = [];
   let pageYOffset = 0;
 
@@ -102,14 +109,22 @@ async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
 }
 
 function isPdfPasswordError(err: unknown): boolean {
-  const maybeErr = err as { name?: string; message?: string; code?: number };
+  if (!err) return false;
+  const maybeErr = err as { name?: string; message?: string; code?: number; reason?: string };
   const msg = String(maybeErr?.message ?? "").toLowerCase();
+  const reason = String(maybeErr?.reason ?? "").toLowerCase();
+  const combined = msg + " " + reason;
+  
   return (
     maybeErr?.name === "PasswordException" ||
-    maybeErr?.code === 1 ||
-    maybeErr?.code === 2 ||
-    msg.includes("password") ||
-    msg.includes("encrypted")
+    maybeErr?.code === 1 || // PasswordException code
+    maybeErr?.code === 2 || // needs password code
+    combined.includes("password") ||
+    combined.includes("encrypted") ||
+    combined.includes("security") ||
+    combined.includes("authorization") ||
+    combined.includes("user password") ||
+    combined.includes("owner password")
   );
 }
 
