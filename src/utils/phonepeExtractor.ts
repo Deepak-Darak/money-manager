@@ -69,19 +69,28 @@ export function extractPhonePeTransactions(
     }
 
     const dateStr = wip.dateStr.trim();
-    const desc = wip.descLines
-      .join(" ")
-      .replace(/\s{2,}/g, " ")
+    let desc = wip.descLines.join(" ");
+    // Aggressively strip transaction metadata
+    desc = desc
+      .replace(/[A-Z][A-Za-z0-9]{20,}/g, "") // Long alphanumeric IDs
+      .replace(/\bT\d{16,}\b/g, "") // T-prefixed IDs
+      .replace(/\bAC\d{15,}\b/g, "") // AC-prefixed IDs
+      .replace(/\bOLEX\d{15,}\b/g, "") // OLEX-prefixed IDs
+      .replace(/\bAT\d{20,}\b/g, "") // AT-prefixed IDs
+      .replace(/\d{10,}/g, "") // Long bare numbers (UTR numbers)
       .replace(/transaction\s*id\s*:\s*\w+/gi, "")
       .replace(/utr\s*no\s*:\s*\w+/gi, "")
       .replace(/credited?\s*(?:to|from)\s+\w+/gi, "")
       .replace(/debited?\s+from\s+\w+/gi, "")
       .replace(/debit\s+inr|credit\s+inr/gi, "")
+      .replace(/xx\d{4}/gi, "")
+      .replace(/\s{2,}/g, " ")
       .trim();
+    if (desc.length < 2) desc = "UPI Transfer";
 
     const amount = parsePhonePeAmount(wip.amountStr);
 
-    if (!dateStr || desc.length < 2 || amount <= 0) {
+    if (!dateStr || amount <= 0) {
       wip = null;
       return;
     }
@@ -104,7 +113,9 @@ export function extractPhonePeTransactions(
   }
 
   // State machine: WAIT_DATE → IN_BLOCK → COMMIT_BLOCK
-  for (const line of lines) {
+  let awaitingAmount = false; // track if next line might be the amount
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line || line.length < 2) continue;
 
     const dateMatch = line.match(
@@ -121,24 +132,43 @@ export function extractPhonePeTransactions(
         kind: "expense",
         hasAmount: false,
       };
+      awaitingAmount = false;
       continue;
     }
 
     if (!wip) continue;
 
     // Skip time-only lines (e.g., "09:17 PM")
-    if (/^\d{1,2}:\d{2}\s*(am|pm)$/i.test(line)) continue;
-
-    // Detect amount line: "Debit INR X.XX" or "Credit INR X.XX"
-    const amountMatch = line.match(
-      /(Debit|Credit)\s+INR\s+([\d,]+\.?\d*)/i
-    );
-    if (amountMatch) {
-      wip.amountStr = amountMatch[2];
-      wip.kind = amountMatch[1].toLowerCase() === "credit" ? "income" : "expense";
-      wip.hasAmount = true;
+    if (/^\d{1,2}:\d{2}\s*(am|pm)$/i.test(line)) {
+      awaitingAmount = false;
       continue;
     }
+
+    // Detect amount line: "Debit INR X.XX" or "Credit INR X.XX" (with optional separate amount line)
+    const debitCreditMatch = line.match(
+      /^(Debit|Credit)\s+INR(?:\s+([\d,]+\.?\d*))?$/i
+    );
+    if (debitCreditMatch) {
+      wip.kind = debitCreditMatch[1].toLowerCase() === "credit" ? "income" : "expense";
+      if (debitCreditMatch[2]) {
+        // Amount on same line
+        wip.amountStr = debitCreditMatch[2];
+        wip.hasAmount = true;
+      } else {
+        // Amount may be on next line
+        awaitingAmount = true;
+      }
+      continue;
+    }
+
+    // If awaiting amount and current line looks like a number, grab it
+    if (awaitingAmount && /^[\d,]+\.?\d*$/.test(line.trim())) {
+      wip.amountStr = line.trim();
+      wip.hasAmount = true;
+      awaitingAmount = false;
+      continue;
+    }
+    awaitingAmount = false;
 
     // Skip metadata lines (UTR, Transaction ID, Debited from, Credited to)
     if (
@@ -202,7 +232,10 @@ function parsePhonePeDate(dateStr: string): string | null {
 
 function parsePhonePeAmount(amountStr: string): number {
   if (!amountStr) return 0;
-  const cleaned = amountStr.replace(/,/g, "").trim();
+  const cleaned = amountStr
+    .trim()
+    .replace(/[,\s]/g, "")
+    .replace(/(₹|rs\.?|inr)/gi, "");
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : Math.abs(num);
 }
