@@ -5,18 +5,26 @@ import type { Account, Category } from "../types/finance";
 // ── PDF text item with position ───────────────────────────────────────────
 interface PdfCell { x: number; y: number; text: string; }
 
+// Regex patterns used exclusively by the PDF parser
+// Date: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD MMM YYYY, DD MMM YY
+const PDF_DATE_RX = /\b(\d{1,2}[\/-\.]\d{1,2}[\/-\.]\d{2,4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
+// Monetary amount: 1,250.00 or 12,50,000.00 or 250.00
+const PDF_AMOUNT_RX = /(\d{1,3}(?:,\d{2,3})*\.\d{2})/g;
+// Lines to ignore entirely (ads, page numbers, account info, totals)
+const NOISE_RX = /page\s*\d+(?:\s*of\s*\d+)?|statement\s*(date|period|summary|number)|account\s*(no\.?|number|summary|holder|type|name|details)|credit\s*limit|available\s*(credit|balance|limit)|minimum\s*(amount\s*)?due|payment\s*due(\s*date)?|total\s*(amount|due|outstanding|charges|credit|debit|transactions)|opening\s*balance|closing\s*balance|reward\s*(points|pts)|dear\s*(customer|member|cardholder|card\s*holder)|thank\s*you|for\s*(queries|assistance|support|any)|customer\s*(care|service)|toll[\s\-]free|helpline|www\.|[a-z0-9\-]+\.(?:com|in|co\.in|net|org)\b|billing\s*(date|period|cycle)|bill\s*(date|generated)|generated\s*on|previous\s*balance|amount\s*carried|sub[\s\-]?total|finance\s*charge|late\s*payment|service\s*tax|gst\s*on|surcharge|\bgstin\b|\bpan\b|\bifsc\b/i;
+
 /**
- * Extract rows from a PDF using pdfjs-dist (dynamically imported).
- * Returns rows as {columnHeader: cellText} records — same shape as xlsx output —
- * so the existing detectColumns + parseRows pipeline can handle them unchanged.
+ * Phase 1: Column-header based extraction — the same structured approach used for CSV/Excel.
+ * Works well when the PDF has a clean table with a recognisable header row.
+ * Also returns the raw lineGroups so Phase 2 can reuse the already-extracted text.
  */
-async function parsePdfToRows(
-  buffer: ArrayBuffer,
-): Promise<{ rows: Record<string, unknown>[]; rawHeaders: string[] }> {
-  // Dynamic import so pdfjs is only loaded when a PDF is actually chosen.
+async function parsePdfToRows(buffer: ArrayBuffer): Promise<{
+  rows: Record<string, unknown>[];
+  rawHeaders: string[];
+  lineGroups: PdfCell[][];
+}> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfjs = (await import("pdfjs-dist")) as any;
-  // Use CDN worker to avoid Vite bundling complexity.
   pdfjs.GlobalWorkerOptions.workerSrc =
     `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
@@ -28,21 +36,17 @@ async function parsePdfToRows(
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1 });
     const tc = await page.getTextContent();
-
     for (const item of tc.items) {
-      // pdfjs text items have a `str` property; skip marks/spaces
       if (!("str" in item) || !item.str.trim()) continue;
       const x = Math.round(item.transform[4]);
-      // PDF y grows upward; flip so row 0 is at top of page
       const y = Math.round(vp.height - item.transform[5]) + pageYOffset;
       allCells.push({ x, y, text: item.str.trim() });
     }
-    pageYOffset += Math.ceil(vp.height) + 30; // gap between pages
+    pageYOffset += Math.ceil(vp.height) + 30;
   }
 
-  if (allCells.length === 0) return { rows: [], rawHeaders: [] };
+  if (allCells.length === 0) return { rows: [], rawHeaders: [], lineGroups: [] };
 
-  // ── Group cells into visual rows by y-proximity (≤ 5pt = same line) ────
   allCells.sort((a, b) => a.y - b.y || a.x - b.x);
   const lineGroups: PdfCell[][] = [];
   for (const cell of allCells) {
@@ -55,7 +59,6 @@ async function parsePdfToRows(
   }
   for (const g of lineGroups) g.sort((a, b) => a.x - b.x);
 
-  // ── Locate the header row by presence of date + amount keywords ─────────
   const ALL_AMOUNT_KEYS = [...DEBIT_KEYS, ...CREDIT_KEYS, ...AMOUNT_KEYS];
   let headerIdx = -1;
   for (let i = 0; i < lineGroups.length; i++) {
@@ -64,9 +67,8 @@ async function parsePdfToRows(
     const hasAmt  = ALL_AMOUNT_KEYS.some((k) => line.includes(k));
     if (hasDate && hasAmt) { headerIdx = i; break; }
   }
-  if (headerIdx === -1) return { rows: [], rawHeaders: [] };
+  if (headerIdx === -1) return { rows: [], rawHeaders: [], lineGroups };
 
-  // ── Build column anchors from header row x-positions ────────────────────
   const colDefs = lineGroups[headerIdx].map((c) => ({ name: c.text, x: c.x }));
 
   function nearestColName(x: number): string {
@@ -79,7 +81,6 @@ async function parsePdfToRows(
     return best.name;
   }
 
-  // ── Convert each data line into a {header: value} record ────────────────
   const rows: Record<string, unknown>[] = [];
   for (let i = headerIdx + 1; i < lineGroups.length; i++) {
     const group = lineGroups[i];
@@ -93,7 +94,153 @@ async function parsePdfToRows(
     rows.push(row);
   }
 
-  return { rows, rawHeaders: colDefs.map((c) => c.name) };
+  return { rows, rawHeaders: colDefs.map((c) => c.name), lineGroups };
+}
+
+/**
+ * Extract the transaction amount and expense/income direction from a line of text.
+ *
+ * Handles:
+ *  - Single amount column  (e.g. "500.00 Dr")
+ *  - Separate Debit/Credit columns  (e.g. "500.00       " or "       500.00")
+ *  - Three-column layout  Debit | Credit | Balance  — drops the last (Balance)
+ *  - Dr / Cr suffix on the amount (HDFC CC style: "500.00Cr")
+ */
+function extractAmountAndKind(
+  lineText: string,
+): { amount: number; kind: "income" | "expense" } | null {
+  const allMatches = [...lineText.matchAll(PDF_AMOUNT_RX)];
+  if (allMatches.length === 0) return null;
+
+  // 3+ monetary numbers on a line → Debit | Credit | Balance layout; drop the last
+  const useMatches = allMatches.length >= 3 ? allMatches.slice(0, -1) : allMatches;
+
+  if (useMatches.length === 2) {
+    // Separate Debit and Credit columns; exactly one should be non-zero
+    const first  = parseFloat(useMatches[0][1].replace(/,/g, ""));
+    const second = parseFloat(useMatches[1][1].replace(/,/g, ""));
+    if (first > 0 && second === 0) return { amount: first,  kind: "expense" }; // Debit
+    if (second > 0 && first === 0) return { amount: second, kind: "income" };  // Credit
+    // Both non-zero: pick the smaller as the actual transaction (other is running balance)
+    return { amount: Math.min(first, second), kind: "expense" };
+  }
+
+  // Single amount
+  const match = useMatches[useMatches.length - 1];
+  const amount = parseFloat(match[1].replace(/,/g, ""));
+  const idxEnd = (match.index ?? 0) + match[1].length;
+
+  // Check ~12 chars around the amount for Dr/Cr markers
+  const near = lineText.slice(Math.max(0, (match.index ?? 0) - 4), idxEnd + 12);
+  const isCr = /Cr\b|\bCR\b|credit|payment|reversal|refund|cashback/i.test(near);
+
+  return { amount, kind: isCr ? "income" : "expense" };
+}
+
+/**
+ * Phase 2: Pattern-based extraction for noisy credit card statement PDFs.
+ *
+ * Strategy:
+ *  1. Scan every visual line.
+ *  2. A line that STARTS with a recognisable date pattern opens a new transaction.
+ *  3. Subsequent lines without a date are either:
+ *     a. Description continuation (no monetary amount) → append to current description.
+ *     b. Amount line (has monetary amount, no date) → attach amount to current transaction.
+ *  4. Noise lines (page numbers, totals, account info, ads) are discarded.
+ *  5. Multi-line merchant names (very common in CC statements) are merged naturally.
+ */
+function patternExtractTransactions(
+  lineGroups: PdfCell[][],
+  defaultAccountId: string,
+): StagedTx[] {
+  interface WipTx {
+    date: string;
+    desc: string;
+    amount: number;
+    kind: "income" | "expense";
+    hasAmount: boolean;
+  }
+
+  const txs: StagedTx[] = [];
+  let wip: WipTx | null = null;
+
+  function flush() {
+    if (!wip || wip.amount <= 0) { wip = null; return; }
+    const desc = wip.desc
+      .replace(/\s{2,}/g, " ")
+      .replace(/^[\s\-|]+|[\s\-|]+$/g, "")
+      .trim();
+    if (desc.length < 2) { wip = null; return; }
+    const { categoryId, kind: catKind } = autoCategory(desc, wip.kind);
+    txs.push({
+      _id: makeId(),
+      selected: true,
+      date: wip.date,
+      title: desc.slice(0, 100),
+      amount: wip.amount,
+      kind: wip.kind,
+      categoryId: catKind === wip.kind ? categoryId : (wip.kind === "income" ? "other-income" : "other-expense"),
+      accountId: defaultAccountId,
+    });
+    wip = null;
+  }
+
+  for (const group of lineGroups) {
+    // Join the visual row into a single string preserving relative spacing
+    const raw = group.map((c) => c.text).join(" ").trim();
+    if (!raw || raw.length < 3) continue;
+    // Discard noise lines completely
+    if (NOISE_RX.test(raw)) { flush(); continue; }
+
+    const dateMatch = raw.match(PDF_DATE_RX);
+
+    if (dateMatch) {
+      // ── New transaction starts here ─────────────────────────────────────
+      flush();
+
+      const afterDate = raw
+        .slice(raw.indexOf(dateMatch[0]) + dateMatch[0].length)
+        .trim();
+
+      const amtKind = extractAmountAndKind(afterDate);
+      // Remove monetary values and Dr/Cr markers from description
+      const cleanDesc = afterDate
+        .replace(PDF_AMOUNT_RX, "")
+        .replace(/\b(?:Dr|Cr)\b/g, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      wip = {
+        date: parseDate(dateMatch[0]),
+        desc: cleanDesc,
+        amount: amtKind?.amount ?? 0,
+        kind:   amtKind?.kind   ?? "expense",
+        hasAmount: amtKind !== null && amtKind.amount > 0,
+      };
+    } else if (wip) {
+      // ── Continuation line (no date) ──────────────────────────────────────
+      const amtKind = extractAmountAndKind(raw);
+
+      if (!wip.hasAmount && amtKind && amtKind.amount > 0) {
+        // This line carries the amount for the current transaction
+        wip.amount    = amtKind.amount;
+        wip.kind      = amtKind.kind;
+        wip.hasAmount = true;
+        const descPart = raw
+          .replace(PDF_AMOUNT_RX, "")
+          .replace(/\b(?:Dr|Cr)\b/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        if (descPart.length > 1) wip.desc += " " + descPart;
+      } else if (!amtKind || amtKind.amount === 0) {
+        // Pure text continuation (multi-line merchant name)
+        wip.desc += " " + raw;
+      }
+      // If wip already has amount and line also has an amount → separate info; ignore
+    }
+  }
+  flush();
+  return txs;
 }
 
 // ── Column header synonyms for common Indian bank / UPI exports ────────────
@@ -319,9 +466,13 @@ export default function StatementImport({ accounts, categories, onImport, onClos
 
       if (isPdf) {
         // ── PDF path: extract text layer with positional grouping ──────────
-        let result: { rows: Record<string, unknown>[]; rawHeaders: string[] };
+        // ── PDF path: two-phase extraction ──────────────────────────────────
+        // Phase 1 (column-header based) is tried first.
+        // If it finds fewer than 3 transactions (common with noisy credit card
+        // PDFs full of ads and account info), Phase 2 (pattern-based) takes over.
+        let pdfResult: { rows: Record<string, unknown>[]; rawHeaders: string[]; lineGroups: PdfCell[][] };
         try {
-          result = await parsePdfToRows(buffer);
+          pdfResult = await parsePdfToRows(buffer);
         } catch (pdfErr) {
           console.error(pdfErr);
           setError(
@@ -331,16 +482,29 @@ export default function StatementImport({ accounts, categories, onImport, onClos
           setIsParsing(false);
           return;
         }
-        if (result.rows.length === 0) {
+
+        if (pdfResult.rows.length >= 3) {
+          // Phase 1 succeeded — feed into the existing column-based pipeline below
+          rows = pdfResult.rows;
+          headers = pdfResult.rawHeaders;
+        } else {
+          // Phase 2: pattern-based extraction for credit card statements
+          const patternTxs = patternExtractTransactions(pdfResult.lineGroups, defaultAccountId);
+          if (patternTxs.length > 0) {
+            setStaged(patternTxs);
+            setStep("review");
+            setIsParsing(false);
+            return;
+          }
           setError(
-            "No transaction table found in the PDF. The parser looks for a row containing date and " +
-            "amount column headers. Try the CSV/Excel export from your bank for better results."
+            "No transactions found in this PDF. " +
+            "The parser searched for date + amount patterns across every line but found nothing. " +
+            "This may be a scanned (image) PDF with no text layer, or the statement format is " +
+            "unusual. Try exporting as CSV or Excel from your bank's netbanking portal."
           );
           setIsParsing(false);
           return;
         }
-        rows = result.rows;
-        headers = result.rawHeaders;
       } else {
         // ── CSV / Excel path ───────────────────────────────────────────────
         const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
