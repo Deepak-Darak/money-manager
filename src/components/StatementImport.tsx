@@ -18,7 +18,7 @@ const NOISE_RX = /page\s*\d+(?:\s*of\s*\d+)?|statement\s*(date|period|summary|nu
  * Works well when the PDF has a clean table with a recognisable header row.
  * Also returns the raw lineGroups so Phase 2 can reuse the already-extracted text.
  */
-async function parsePdfToRows(buffer: ArrayBuffer): Promise<{
+async function parsePdfToRows(buffer: ArrayBuffer, password?: string): Promise<{
   rows: Record<string, unknown>[];
   rawHeaders: string[];
   lineGroups: PdfCell[][];
@@ -28,7 +28,10 @@ async function parsePdfToRows(buffer: ArrayBuffer): Promise<{
   pdfjs.GlobalWorkerOptions.workerSrc =
     `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pdf = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    ...(password ? { password } : {}),
+  }).promise;
   const allCells: PdfCell[] = [];
   let pageYOffset = 0;
 
@@ -95,6 +98,18 @@ async function parsePdfToRows(buffer: ArrayBuffer): Promise<{
   }
 
   return { rows, rawHeaders: colDefs.map((c) => c.name), lineGroups };
+}
+
+function isPdfPasswordError(err: unknown): boolean {
+  const maybeErr = err as { name?: string; message?: string; code?: number };
+  const msg = String(maybeErr?.message ?? "").toLowerCase();
+  return (
+    maybeErr?.name === "PasswordException" ||
+    maybeErr?.code === 1 ||
+    maybeErr?.code === 2 ||
+    msg.includes("password") ||
+    msg.includes("encrypted")
+  );
 }
 
 /**
@@ -465,20 +480,47 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       let headers: string[];
 
       if (isPdf) {
-        // ── PDF path: extract text layer with positional grouping ──────────
         // ── PDF path: two-phase extraction ──────────────────────────────────
         // Phase 1 (column-header based) is tried first.
         // If it finds fewer than 3 transactions (common with noisy credit card
         // PDFs full of ads and account info), Phase 2 (pattern-based) takes over.
         let pdfResult: { rows: Record<string, unknown>[]; rawHeaders: string[]; lineGroups: PdfCell[][] };
-        try {
-          pdfResult = await parsePdfToRows(buffer);
-        } catch (pdfErr) {
-          console.error(pdfErr);
-          setError(
-            "Could not read the PDF. This usually means it is a scanned image PDF with no text layer. " +
-            "Try downloading the statement as CSV or Excel from your bank instead."
-          );
+        let pdfPassword: string | undefined;
+        let unlocked = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            pdfResult = await parsePdfToRows(buffer, pdfPassword);
+            unlocked = true;
+            break;
+          } catch (pdfErr) {
+            if (!isPdfPasswordError(pdfErr)) {
+              console.error(pdfErr);
+              setError(
+                "Could not read the PDF. This usually means it is a scanned image PDF with no text layer. " +
+                "Try downloading the statement as CSV or Excel from your bank instead."
+              );
+              setIsParsing(false);
+              return;
+            }
+
+            const entered = window.prompt(
+              attempt === 0
+                ? "This PDF is password-protected. Enter the PDF password to import transactions:"
+                : "Wrong password. Please enter the correct PDF password:"
+            );
+
+            if (entered === null) {
+              setError("PDF import cancelled. The selected file is password-protected.");
+              setIsParsing(false);
+              return;
+            }
+
+            pdfPassword = entered;
+          }
+        }
+
+        if (!unlocked) {
+          setError("Could not unlock PDF after multiple attempts. Please re-check the password and try again.");
           setIsParsing(false);
           return;
         }
