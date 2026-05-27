@@ -6,10 +6,10 @@ import type { Account, Category } from "../types/finance";
 interface PdfCell { x: number; y: number; text: string; }
 
 // Regex patterns used exclusively by the PDF parser
-// Date: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD MMM YYYY, DD MMM YY
-const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
-// Monetary amount: 1,250.00 or 12,50,000.00 or 250.00
-const PDF_AMOUNT_RX = /(\d{1,3}(?:,\d{2,3})*\.\d{2})/g;
+// Date: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD, DD MMM YYYY, DD MMM YY
+const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
+// Monetary amount: supports currency sign, optional decimal, and + / - sign.
+const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?)/gi;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
 const NOISE_RX = /page\s*\d+(?:\s*of\s*\d+)?|statement\s*(date|period|summary|number)|account\s*(no\.?|number|summary|holder|type|name|details)|credit\s*limit|available\s*(credit|balance|limit)|minimum\s*(amount\s*)?due|payment\s*due(\s*date)?|total\s*(amount|due|outstanding|charges|credit|debit|transactions)|opening\s*balance|closing\s*balance|reward\s*(points|pts)|dear\s*(customer|member|cardholder|card\s*holder)|thank\s*you|for\s*(queries|assistance|support|any)|customer\s*(care|service)|toll[\s\-]free|helpline|www\.|[a-z0-9\-]+\.(?:com|in|co\.in|net|org)\b|billing\s*(date|period|cycle)|bill\s*(date|generated)|generated\s*on|previous\s*balance|amount\s*carried|sub[\s\-]?total|finance\s*charge|late\s*payment|service\s*tax|gst\s*on|surcharge|\bgstin\b|\bpan\b|\bifsc\b/i;
 
@@ -124,16 +124,28 @@ function isPdfPasswordError(err: unknown): boolean {
 function extractAmountAndKind(
   lineText: string,
 ): { amount: number; kind: "income" | "expense" } | null {
-  const allMatches = [...lineText.matchAll(PDF_AMOUNT_RX)];
+  const allMatches = [...lineText.matchAll(PDF_AMOUNT_RX)]
+    .map((m) => {
+      const token = (m[0] ?? "").trim();
+      const numPart = token
+        .replace(/(₹|rs\.?|inr)/gi, "")
+        .replace(/,/g, "")
+        .replace(/\s+/g, "");
+      const value = parseFloat(numPart);
+      return { token, value, index: m.index ?? 0 };
+    })
+    // Filter obvious false positives (dates and tiny non-amount numbers)
+    .filter((x) => Number.isFinite(x.value) && x.value >= 1);
+
   if (allMatches.length === 0) return null;
 
-  // 3+ monetary numbers on a line → Debit | Credit | Balance layout; drop the last
+  // 3+ numeric tokens on a line usually means Debit | Credit | Balance; drop last as balance.
   const useMatches = allMatches.length >= 3 ? allMatches.slice(0, -1) : allMatches;
 
   if (useMatches.length === 2) {
     // Separate Debit and Credit columns; exactly one should be non-zero
-    const first  = parseFloat(useMatches[0][1].replace(/,/g, ""));
-    const second = parseFloat(useMatches[1][1].replace(/,/g, ""));
+    const first = useMatches[0].value;
+    const second = useMatches[1].value;
     if (first > 0 && second === 0) return { amount: first,  kind: "expense" }; // Debit
     if (second > 0 && first === 0) return { amount: second, kind: "income" };  // Credit
     // Both non-zero: pick the smaller as the actual transaction (other is running balance)
@@ -142,14 +154,19 @@ function extractAmountAndKind(
 
   // Single amount
   const match = useMatches[useMatches.length - 1];
-  const amount = parseFloat(match[1].replace(/,/g, ""));
-  const idxEnd = (match.index ?? 0) + match[1].length;
+  const amount = match.value;
+  const idxEnd = match.index + match.token.length;
 
   // Check ~12 chars around the amount for Dr/Cr markers
-  const near = lineText.slice(Math.max(0, (match.index ?? 0) - 4), idxEnd + 12);
-  const isCr = /Cr\b|\bCR\b|credit|payment|reversal|refund|cashback/i.test(near);
+  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 14);
+  const hasPlus = /(^|\s)\+/.test(match.token);
+  const hasMinus = /(^|\s)-/.test(match.token);
+  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|reversal/i.test(near);
+  const isExpenseHint = /Dr\b|\bDR\b|debit|paid|sent|purchase|upi\s*pay/i.test(near);
 
-  return { amount, kind: isCr ? "income" : "expense" };
+  if (hasPlus || isIncomeHint) return { amount, kind: "income" };
+  if (hasMinus || isExpenseHint) return { amount, kind: "expense" };
+  return { amount, kind: "expense" };
 }
 
 /**
@@ -345,7 +362,9 @@ function detectColumns(headers: string[]): ColumnMap {
 
 function parseAmount(val: unknown): number {
   if (val === "" || val == null) return 0;
-  const str = String(val).replace(/[₹$,\s]/g, "");
+  const str = String(val)
+    .replace(/(₹|\$|rs\.?|inr)/gi, "")
+    .replace(/[\s,]/g, "");
   const num = parseFloat(str);
   return isNaN(num) ? 0 : Math.abs(num);
 }
@@ -422,7 +441,9 @@ function parseRows(rows: Record<string, unknown>[], colMap: ColumnMap, defaultAc
         continue;
       }
     } else if (colMap.amount) {
-      const raw = String(row[colMap.amount] ?? "").replace(/[₹$,\s]/g, "");
+      const raw = String(row[colMap.amount] ?? "")
+        .replace(/(₹|\$|rs\.?|inr)/gi, "")
+        .replace(/[\s,]/g, "");
       const num = parseFloat(raw);
       if (isNaN(num) || num === 0) continue;
       amount = Math.abs(num);
