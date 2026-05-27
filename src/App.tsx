@@ -16,38 +16,6 @@ function normalizeEmail(input: string) {
   return input.trim().toLowerCase();
 }
 
-function toHex(bytes: Uint8Array) {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function sha256Hex(input: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return toHex(new Uint8Array(digest));
-}
-
-async function hmacSha256Hex(key: string, message: string) {
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(key),
-    {
-      name: "HMAC",
-      hash: "SHA-256"
-    },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message));
-  return toHex(new Uint8Array(signature));
-}
-
-function makeNonce() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return toHex(bytes);
-}
-
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -347,21 +315,12 @@ export default function App() {
       throw new Error("Authentication required.");
     }
 
-    const timestamp = Date.now();
-    const nonce = makeNonce();
-    const payload = action === "push" ? snapshot : null;
-    const payloadHash = await sha256Hex(JSON.stringify(payload));
-    const signingPayload = [action, String(timestamp), nonce, payloadHash].join("\n");
-    const signature = await hmacSha256Hex(token, signingPayload);
-
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
       body: JSON.stringify({
         action,
-        authToken: token,
-        timestamp,
-        nonce,
-        signature,
+        email,
+        password: token,
         ...(action === "push" ? { payload: snapshot } : {})
       })
     });
@@ -378,44 +337,7 @@ export default function App() {
     }
 
     if (!result.ok) {
-      const lowerMessage = (result.message || "").toLowerCase();
-      const needsLegacyFallback =
-        lowerMessage.includes("missing signed request") ||
-        lowerMessage.includes("missing signed request fields") ||
-        lowerMessage.includes("auth token") ||
-        lowerMessage.includes("session") ||
-        lowerMessage.includes("unknown action");
-
-      if (!needsLegacyFallback) {
-        throw new Error(result.message || "Sync rejected.");
-      }
-
-      const legacyResponse = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        body: JSON.stringify({
-          action,
-          email,
-          password: token,
-          ...(action === "push" ? { payload: snapshot } : {})
-        })
-      });
-
-      const legacyResult = (await legacyResponse.json()) as {
-        ok: boolean;
-        message?: string;
-        data?: AppDataSnapshot;
-        email?: string;
-      };
-
-      if (!legacyResponse.ok) {
-        throw new Error(legacyResult.message || `Sync request failed (${legacyResponse.status}).`);
-      }
-
-      if (!legacyResult.ok) {
-        throw new Error(legacyResult.message || "Sync rejected.");
-      }
-
-      return legacyResult;
+      throw new Error(result.message || "Sync rejected.");
     }
 
     return result;
