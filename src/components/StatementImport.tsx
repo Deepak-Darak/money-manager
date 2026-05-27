@@ -551,32 +551,31 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             unlocked = true;
             break;
           } catch (pdfErr) {
-            if (!isPdfPasswordError(pdfErr)) {
-          if (isPdfPasswordError(pdfErr)) {
-            const entered = window.prompt(
-              attempt === 0
-                ? "This PDF is password-protected. Enter the PDF password to import transactions:"
-                : "Wrong password. Please enter the correct PDF password:"
-            );
+            if (isPdfPasswordError(pdfErr)) {
+              const entered = window.prompt(
+                attempt === 0
+                  ? "This PDF is password-protected. Enter the PDF password to import transactions:"
+                  : "Wrong password. Please enter the correct PDF password:"
+              );
 
-            if (entered === null) {
-              setError("PDF import cancelled. The selected file is password-protected.");
+              if (entered === null) {
+                setError("PDF import cancelled. The selected file is password-protected.");
+                setIsParsing(false);
+                return;
+              }
+
+              pdfPassword = entered;
+            } else {
+              // Non-password error; detailed logging for debugging
+              const errMsg = (pdfErr as { message?: string; name?: string })?.message || String(pdfErr);
+              console.error("PDF read error:", errMsg, pdfErr);
+              setError(
+                `Could not read the PDF: ${errMsg.slice(0, 80)}. This may be a scanned image PDF. ` +
+                `Try downloading the statement as CSV or Excel from your bank instead.`
+              );
               setIsParsing(false);
               return;
             }
-
-            pdfPassword = entered;
-          } else {
-            // Non-password error; detailed logging for debugging
-            const errMsg = (pdfErr as { message?: string; name?: string })?.message || String(pdfErr);
-            console.error("PDF read error:", errMsg, pdfErr);
-            setError(
-              `Could not read the PDF: ${errMsg.slice(0, 80)}. This may be a scanned image PDF. ` +
-              `Try downloading the statement as CSV or Excel from your bank instead.`
-            );
-            setIsParsing(false);
-            return;
-          }
           }
         }
 
