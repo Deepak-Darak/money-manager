@@ -250,6 +250,7 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
+  const [showBalance, setShowBalance] = useState(true);
   const [userEmail, setUserEmail] = useState(() =>
     normalizeEmail(window.localStorage.getItem("mm-user-email") ?? "")
   );
@@ -688,13 +689,34 @@ export default function App() {
         {activeTab === "dashboard" && (
           <div className="tab-content">
           <section className="panel net-balance-card">
-            <p>Current Total Balance (Assets - Liabilities)</p>
-            <h2 className={currentTotalBalance >= 0 ? "plus" : "minus"}>
-              ₹{Math.round(currentTotalBalance).toLocaleString("en-IN")}
+            <div className="balance-header">
+              <p>Current Total Balance (Assets - Liabilities)</p>
+              <button
+                type="button"
+                className="icon-btn balance-toggle"
+                aria-label={showBalance ? "Hide balance" : "Show balance"}
+                onClick={() => setShowBalance(!showBalance)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {showBalance ? (
+                    <>
+                      <path d="M12 5C6 5 1.73 8.11 1 12.5c.73 4.39 5 7.5 11 7.5s10.27-3.11 11-7.5c-.73-4.39-5-7.5-11-7.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M3 3l18 18M2.458 12.32c-.464-.604-.692-.906-.747-1.32-.055-.414.04-.821.283-1.635.242-.813.36-1.22.36-1.36 0-4.39 5.027-7.5 11-7.5 1.506 0 2.948.167 4.313.475m3.935 2.18c.413.496.635.744.716 1.046.08.303.054.618-.17 1.396-.223.779-.335 1.169-.335 1.308 0 4.39-5.027 7.5-11 7.5-1.506 0-2.948-.167-4.313-.475" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
+            <h2 className={`${currentTotalBalance >= 0 ? "plus" : "minus"}${!showBalance ? " balance-hidden" : ""}`}>
+              {showBalance ? `₹${Math.round(currentTotalBalance).toLocaleString("en-IN")}` : "••••••"}
             </h2>
             <div className="balance-split-row">
-              <span className="plus">Assets: ₹{Math.round(totalAssets).toLocaleString("en-IN")}</span>
-              <span className="minus">Liabilities: ₹{Math.round(totalLiabilities).toLocaleString("en-IN")}</span>
+              <span className="plus">Assets: {showBalance ? `₹${Math.round(totalAssets).toLocaleString("en-IN")}` : "••••••"}</span>
+              <span className="minus">Liabilities: {showBalance ? `₹${Math.round(totalLiabilities).toLocaleString("en-IN")}` : "••••••"}</span>
             </div>
           </section>
 

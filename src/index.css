@@ -898,16 +898,49 @@ textarea:focus {
   border-top: 3px solid var(--accent-blue);
 }
 
+.balance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.balance-header p {
+  margin: 0;
+}
+
+.balance-toggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+
+.balance-toggle:hover {
+  color: var(--accent-blue);
+}
+
+.balance-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
 .net-balance-card p {
   font-size: 0.82rem;
   color: var(--ink-2);
-  margin-bottom: 6px;
+  margin-bottom: 0;
 }
 
 .net-balance-card h2 {
   margin-bottom: 8px;
   font-size: 1.85rem;
   font-family: "Manrope", sans-serif;
+  transition: filter 0.2s ease;
+}
+
+.net-balance-card h2.balance-hidden {
+  filter: blur(6px);
+  letter-spacing: 0.15em;
 }
 
 .balance-split-row {
