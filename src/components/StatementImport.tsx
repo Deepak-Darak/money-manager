@@ -518,15 +518,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             break;
           } catch (pdfErr) {
             if (!isPdfPasswordError(pdfErr)) {
-              console.error(pdfErr);
-              setError(
-                "Could not read the PDF. This usually means it is a scanned image PDF with no text layer. " +
-                "Try downloading the statement as CSV or Excel from your bank instead."
-              );
-              setIsParsing(false);
-              return;
-            }
-
+          if (isPdfPasswordError(pdfErr)) {
             const entered = window.prompt(
               attempt === 0
                 ? "This PDF is password-protected. Enter the PDF password to import transactions:"
@@ -540,6 +532,17 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             }
 
             pdfPassword = entered;
+          } else {
+            // Non-password error; detailed logging for debugging
+            const errMsg = (pdfErr as { message?: string; name?: string })?.message || String(pdfErr);
+            console.error("PDF read error:", errMsg, pdfErr);
+            setError(
+              `Could not read the PDF: ${errMsg.slice(0, 80)}. This may be a scanned image PDF. ` +
+              `Try downloading the statement as CSV or Excel from your bank instead.`
+            );
+            setIsParsing(false);
+            return;
+          }
           }
         }
 
@@ -556,27 +559,32 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         }
 
         // Priority 1: PhonePe statement detection and extraction
-        if (isPhonePeStatement(pdfResult.lineGroups)) {
-          const phonepeRawTxs = extractPhonePeTransactions(pdfResult.lineGroups);
-          if (phonepeRawTxs.length > 0) {
-            const phonepeStaged = phonepeRawTxs.map((tx) => {
-              const { categoryId, kind: catKind } = autoCategory(tx.title, tx.kind);
-              return {
-                _id: makeId(),
-                selected: tx.confidence > 0.8,
-                date: tx.date,
-                title: tx.title,
-                amount: tx.amount,
-                kind: tx.kind,
-                categoryId: catKind === tx.kind ? categoryId : (tx.kind === "income" ? "other-income" : "other-expense"),
-                accountId: defaultAccountId,
-              };
-            });
-            setStaged(phonepeStaged);
-            setStep("review");
-            setIsParsing(false);
-            return;
+        try {
+          if (isPhonePeStatement(pdfResult.lineGroups)) {
+            const phonepeRawTxs = extractPhonePeTransactions(pdfResult.lineGroups);
+            if (phonepeRawTxs.length > 0) {
+              const phonepeStaged = phonepeRawTxs.map((tx) => {
+                const { categoryId, kind: catKind } = autoCategory(tx.title, tx.kind);
+                return {
+                  _id: makeId(),
+                  selected: tx.confidence > 0.8,
+                  date: tx.date,
+                  title: tx.title,
+                  amount: tx.amount,
+                  kind: tx.kind,
+                  categoryId: catKind === tx.kind ? categoryId : (tx.kind === "income" ? "other-income" : "other-expense"),
+                  accountId: defaultAccountId,
+                };
+              });
+              setStaged(phonepeStaged);
+              setStep("review");
+              setIsParsing(false);
+              return;
+            }
           }
+        } catch (phonepeErr) {
+          console.error("PhonePe extractor error:", phonepeErr);
+          // Fall through to generic parsers
         }
 
         // Priority 2: Column-based extraction (clean structured tables)
