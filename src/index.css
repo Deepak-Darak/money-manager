@@ -913,10 +913,18 @@ textarea:focus {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
   color: var(--ink-3);
 }
 
 .balance-toggle:hover {
+  border-color: var(--accent-blue);
+  background: var(--surface-3);
   color: var(--accent-blue);
 }
 

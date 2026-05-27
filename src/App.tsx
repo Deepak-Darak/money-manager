@@ -250,7 +250,7 @@ export default function App() {
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [dashboardMonth, setDashboardMonth] = useState(getCurrentMonth);
-  const [showBalance, setShowBalance] = useState(true);
+  const [showBalance, setShowBalance] = useState(false);
   const [userEmail, setUserEmail] = useState(() =>
     normalizeEmail(window.localStorage.getItem("mm-user-email") ?? "")
   );
@@ -303,6 +303,20 @@ export default function App() {
       window.localStorage.removeItem("mm-auth-token");
     }
   }, [authToken]);
+
+  useEffect(() => {
+    if (!showBalance) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowBalance(false);
+    }, 5 * 60 * 1000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [showBalance]);
 
   useEffect(() => {
     const standalone = isStandaloneDisplay();
@@ -700,12 +714,13 @@ export default function App() {
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   {showBalance ? (
                     <>
-                      <path d="M12 5C6 5 1.73 8.11 1 12.5c.73 4.39 5 7.5 11 7.5s10.27-3.11 11-7.5c-.73-4.39-5-7.5-11-7.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
                     </>
                   ) : (
                     <>
-                      <path d="M3 3l18 18M2.458 12.32c-.464-.604-.692-.906-.747-1.32-.055-.414.04-.821.283-1.635.242-.813.36-1.22.36-1.36 0-4.39 5.027-7.5 11-7.5 1.506 0 2.948.167 4.313.475m3.935 2.18c.413.496.635.744.716 1.046.08.303.054.618-.17 1.396-.223.779-.335 1.169-.335 1.308 0 4.39-5.027 7.5-11 7.5-1.506 0-2.948-.167-4.313-.475" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M4 4 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </>
                   )}
                 </svg>
