@@ -192,6 +192,7 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
         message?: string;
         email?: string;
         sessionToken?: string;
+        token?: string;
       };
 
       if (!result.ok) {
@@ -199,12 +200,8 @@ function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps)
         return;
       }
 
-      if (!result.sessionToken) {
-        onError("Missing session token from server.");
-        return;
-      }
-
-      onSuccess(result.email ?? normalizedEmail, result.sessionToken);
+      const nextToken = result.sessionToken ?? result.token ?? password;
+      onSuccess(result.email ?? normalizedEmail, nextToken);
     } catch (error) {
       onError(error instanceof Error ? error.message : "Authentication error.");
     } finally {
@@ -341,7 +338,7 @@ export default function App() {
     };
   }, []);
 
-  async function syncRequest(action: "push" | "pull", token: string) {
+  async function syncRequest(action: "push" | "pull", email: string, token: string) {
     if (!SYNC_ENDPOINT) {
       throw new Error("Cloud sync endpoint is not configured.");
     }
@@ -369,10 +366,6 @@ export default function App() {
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Sync request failed (${response.status}).`);
-    }
-
     const result = (await response.json()) as {
       ok: boolean;
       message?: string;
@@ -380,8 +373,49 @@ export default function App() {
       email?: string;
     };
 
+    if (!response.ok) {
+      throw new Error(result.message || `Sync request failed (${response.status}).`);
+    }
+
     if (!result.ok) {
-      throw new Error(result.message || "Sync rejected.");
+      const lowerMessage = (result.message || "").toLowerCase();
+      const needsLegacyFallback =
+        lowerMessage.includes("missing signed request") ||
+        lowerMessage.includes("missing signed request fields") ||
+        lowerMessage.includes("auth token") ||
+        lowerMessage.includes("session") ||
+        lowerMessage.includes("unknown action");
+
+      if (!needsLegacyFallback) {
+        throw new Error(result.message || "Sync rejected.");
+      }
+
+      const legacyResponse = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          email,
+          password: token,
+          ...(action === "push" ? { payload: snapshot } : {})
+        })
+      });
+
+      const legacyResult = (await legacyResponse.json()) as {
+        ok: boolean;
+        message?: string;
+        data?: AppDataSnapshot;
+        email?: string;
+      };
+
+      if (!legacyResponse.ok) {
+        throw new Error(legacyResult.message || `Sync request failed (${legacyResponse.status}).`);
+      }
+
+      if (!legacyResult.ok) {
+        throw new Error(legacyResult.message || "Sync rejected.");
+      }
+
+      return legacyResult;
     }
 
     return result;
@@ -397,7 +431,7 @@ export default function App() {
   async function pullFromCloud(token: string) {
     setIsSyncing(true);
     try {
-      const result = await syncRequest("pull", token);
+      const result = await syncRequest("pull", email, token);
       if (result.email) {
         setUserEmail(normalizeEmail(result.email));
       }
@@ -425,7 +459,7 @@ export default function App() {
     }
     setIsSyncing(true);
     try {
-      const result = await syncRequest("push", token);
+      const result = await syncRequest("push", email, token);
       if (result.email) {
         setUserEmail(normalizeEmail(result.email));
       }
