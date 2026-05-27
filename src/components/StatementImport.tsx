@@ -2,6 +2,100 @@ import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Account, Category } from "../types/finance";
 
+// ── PDF text item with position ───────────────────────────────────────────
+interface PdfCell { x: number; y: number; text: string; }
+
+/**
+ * Extract rows from a PDF using pdfjs-dist (dynamically imported).
+ * Returns rows as {columnHeader: cellText} records — same shape as xlsx output —
+ * so the existing detectColumns + parseRows pipeline can handle them unchanged.
+ */
+async function parsePdfToRows(
+  buffer: ArrayBuffer,
+): Promise<{ rows: Record<string, unknown>[]; rawHeaders: string[] }> {
+  // Dynamic import so pdfjs is only loaded when a PDF is actually chosen.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pdfjs = (await import("pdfjs-dist")) as any;
+  // Use CDN worker to avoid Vite bundling complexity.
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const allCells: PdfCell[] = [];
+  let pageYOffset = 0;
+
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const vp = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent();
+
+    for (const item of tc.items) {
+      // pdfjs text items have a `str` property; skip marks/spaces
+      if (!("str" in item) || !item.str.trim()) continue;
+      const x = Math.round(item.transform[4]);
+      // PDF y grows upward; flip so row 0 is at top of page
+      const y = Math.round(vp.height - item.transform[5]) + pageYOffset;
+      allCells.push({ x, y, text: item.str.trim() });
+    }
+    pageYOffset += Math.ceil(vp.height) + 30; // gap between pages
+  }
+
+  if (allCells.length === 0) return { rows: [], rawHeaders: [] };
+
+  // ── Group cells into visual rows by y-proximity (≤ 5pt = same line) ────
+  allCells.sort((a, b) => a.y - b.y || a.x - b.x);
+  const lineGroups: PdfCell[][] = [];
+  for (const cell of allCells) {
+    const last = lineGroups[lineGroups.length - 1];
+    if (last && Math.abs(cell.y - last[0].y) <= 5) {
+      last.push(cell);
+    } else {
+      lineGroups.push([cell]);
+    }
+  }
+  for (const g of lineGroups) g.sort((a, b) => a.x - b.x);
+
+  // ── Locate the header row by presence of date + amount keywords ─────────
+  const ALL_AMOUNT_KEYS = [...DEBIT_KEYS, ...CREDIT_KEYS, ...AMOUNT_KEYS];
+  let headerIdx = -1;
+  for (let i = 0; i < lineGroups.length; i++) {
+    const line = lineGroups[i].map((c) => c.text.toLowerCase()).join(" ");
+    const hasDate = DATE_KEYS.some((k) => line.includes(k));
+    const hasAmt  = ALL_AMOUNT_KEYS.some((k) => line.includes(k));
+    if (hasDate && hasAmt) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) return { rows: [], rawHeaders: [] };
+
+  // ── Build column anchors from header row x-positions ────────────────────
+  const colDefs = lineGroups[headerIdx].map((c) => ({ name: c.text, x: c.x }));
+
+  function nearestColName(x: number): string {
+    let best = colDefs[0];
+    let bestDist = Math.abs(x - best.x);
+    for (const col of colDefs) {
+      const d = Math.abs(x - col.x);
+      if (d < bestDist) { bestDist = d; best = col; }
+    }
+    return best.name;
+  }
+
+  // ── Convert each data line into a {header: value} record ────────────────
+  const rows: Record<string, unknown>[] = [];
+  for (let i = headerIdx + 1; i < lineGroups.length; i++) {
+    const group = lineGroups[i];
+    const rowMap: Record<string, string[]> = {};
+    for (const cell of group) {
+      const col = nearestColName(cell.x);
+      (rowMap[col] = rowMap[col] ?? []).push(cell.text);
+    }
+    const row: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rowMap)) row[k] = v.join(" ");
+    rows.push(row);
+  }
+
+  return { rows, rawHeaders: colDefs.map((c) => c.name) };
+}
+
 // ── Column header synonyms for common Indian bank / UPI exports ────────────
 const DATE_KEYS    = ["date", "txn date", "transaction date", "value date", "tran date", "posting date", "trans date", "dt", "settled on"];
 const DESC_KEYS    = ["description", "narration", "particulars", "transaction remarks", "details", "remarks", "trans details", "transaction details", "beneficiary name", "narration/chq. no.", "narration/chq no", "chq no./desc.", "particulars/cheque no.", "transaction", "transaction description", "merchant name", "ref no./narration", "upi description"];
@@ -218,22 +312,56 @@ export default function StatementImport({ accounts, categories, onImport, onClos
     setIsParsing(true);
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
-      if (rows.length === 0) {
-        setError("No data rows found. Make sure the file has a header row and transaction rows.");
-        setIsParsing(false);
-        return;
+      let rows: Record<string, unknown>[];
+      let headers: string[];
+
+      if (isPdf) {
+        // ── PDF path: extract text layer with positional grouping ──────────
+        let result: { rows: Record<string, unknown>[]; rawHeaders: string[] };
+        try {
+          result = await parsePdfToRows(buffer);
+        } catch (pdfErr) {
+          console.error(pdfErr);
+          setError(
+            "Could not read the PDF. This usually means it is a scanned image PDF with no text layer. " +
+            "Try downloading the statement as CSV or Excel from your bank instead."
+          );
+          setIsParsing(false);
+          return;
+        }
+        if (result.rows.length === 0) {
+          setError(
+            "No transaction table found in the PDF. The parser looks for a row containing date and " +
+            "amount column headers. Try the CSV/Excel export from your bank for better results."
+          );
+          setIsParsing(false);
+          return;
+        }
+        rows = result.rows;
+        headers = result.rawHeaders;
+      } else {
+        // ── CSV / Excel path ───────────────────────────────────────────────
+        const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        if (rows.length === 0) {
+          setError("No data rows found. Make sure the file has a header row and transaction rows.");
+          setIsParsing(false);
+          return;
+        }
+        headers = Object.keys(rows[0]);
       }
 
-      const headers = Object.keys(rows[0]);
       const colMap = detectColumns(headers);
 
       if (!colMap.desc) {
-        setError(`Could not detect a description column. Found: ${headers.slice(0, 6).join(", ")}. Try exporting as CSV.`);
+        setError(
+          `Could not detect a description/narration column. ` +
+          `Detected columns: ${headers.slice(0, 8).join(", ")}. ` +
+          (isPdf ? "PDFs with complex layouts may not parse correctly — try CSV/Excel export." : "Try CSV export.")
+        );
         setIsParsing(false);
         return;
       }
@@ -241,7 +369,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       const txs = parseRows(rows, colMap, defaultAccountId);
 
       if (txs.length === 0) {
-        setError("Parsed 0 transactions. The file may have no amount columns or all rows are empty.");
+        setError("Parsed 0 transactions. No rows with recognisable amounts were found.");
         setIsParsing(false);
         return;
       }
@@ -249,7 +377,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       setStaged(txs);
       setStep("review");
     } catch (err) {
-      setError("Failed to read file. Make sure it is a valid CSV or Excel (.xlsx) file.");
+      setError("Failed to read file. Make sure it is a valid PDF, CSV, or Excel (.xlsx) file.");
       console.error(err);
     }
     setIsParsing(false);
@@ -337,7 +465,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                   <polyline points="9 15 12 12 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <p className="import-dropzone-label">Tap to select or drag a file here</p>
-                <p className="import-dropzone-hint">CSV · XLS · XLSX</p>
+                <p className="import-dropzone-hint">PDF · CSV · XLS · XLSX</p>
               </>
             )}
           </div>
@@ -345,13 +473,16 @@ export default function StatementImport({ accounts, categories, onImport, onClos
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.xlsx,.xls,.pdf"
             style={{ display: "none" }}
             onChange={handleFileChange}
           />
 
           <p className="import-tip">
-            Tip: In your bank app, go to <strong>Statements → Download → CSV</strong>. Remove any header lines that are not column names before importing.
+            Supports <strong>PDF</strong>, <strong>CSV</strong>, and <strong>Excel</strong> statements from most Indian banks
+            (HDFC, SBI, ICICI, Axis, PhonePe, GPay, credit cards…).
+            PDF must be a <em>digital</em> statement (text selectable) — scanned image PDFs are not supported.
+            For best results, use CSV/Excel export from your bank app.
           </p>
         </div>
       </div>
