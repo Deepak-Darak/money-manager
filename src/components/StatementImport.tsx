@@ -6,10 +6,10 @@ import type { Account, Category } from "../types/finance";
 interface PdfCell { x: number; y: number; text: string; }
 
 // Regex patterns used exclusively by the PDF parser
-// Date: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD, DD MMM YYYY, DD MMM YY
-const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4})\b/i;
-// Monetary amount: supports currency sign, optional decimal, and + / - sign.
-const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?)/gi;
+// Date: DD/MM/YYYY, YYYY-MM-DD, DD MMM YYYY, and MMM DD, YYYY (PhonePe style)
+const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{2,4})\b/i;
+// Monetary amount: decimal values always allowed; integer values only when currency marker exists.
+const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*\d{1,3}(?:,\d{2,3})*\.\d{1,2}|[+-]?\s*\d+\.\d{1,2})/gi;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
 const NOISE_RX = /page\s*\d+(?:\s*of\s*\d+)?|statement\s*(date|period|summary|number)|account\s*(no\.?|number|summary|holder|type|name|details)|credit\s*limit|available\s*(credit|balance|limit)|minimum\s*(amount\s*)?due|payment\s*due(\s*date)?|total\s*(amount|due|outstanding|charges|credit|debit|transactions)|opening\s*balance|closing\s*balance|reward\s*(points|pts)|dear\s*(customer|member|cardholder|card\s*holder)|thank\s*you|for\s*(queries|assistance|support|any)|customer\s*(care|service)|toll[\s\-]free|helpline|www\.|[a-z0-9\-]+\.(?:com|in|co\.in|net|org)\b|billing\s*(date|period|cycle)|bill\s*(date|generated)|generated\s*on|previous\s*balance|amount\s*carried|sub[\s\-]?total|finance\s*charge|late\s*payment|service\s*tax|gst\s*on|surcharge|\bgstin\b|\bpan\b|\bifsc\b/i;
 
@@ -221,8 +221,9 @@ function patternExtractTransactions(
     // Join the visual row into a single string preserving relative spacing
     const raw = group.map((c) => c.text).join(" ").trim();
     if (!raw || raw.length < 3) continue;
-    // Discard noise lines completely
-    if (NOISE_RX.test(raw)) { flush(); continue; }
+    // Discard global noise lines. Do not flush here because some statements
+    // include noisy lines in the middle of a transaction block.
+    if (NOISE_RX.test(raw)) continue;
 
     const dateMatch = raw.match(PDF_DATE_RX);
 
@@ -251,6 +252,7 @@ function patternExtractTransactions(
       };
     } else if (wip) {
       // ── Continuation line (no date) ──────────────────────────────────────
+      if (/^\d{1,2}:\d{2}\s*(am|pm)$/i.test(raw)) continue; // time-only line
       const amtKind = extractAmountAndKind(raw);
 
       if (!wip.hasAmount && amtKind && amtKind.amount > 0) {
