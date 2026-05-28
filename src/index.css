@@ -1653,10 +1653,75 @@ textarea:focus {
   font-size: 1.15rem;
 }
 
-.import-sub {
-  color: var(--ink-2);
-  font-size: 0.85rem;
+.import-section-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+
+/* Source type cards */
+.import-source-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 560px) {
+  .import-source-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.import-source-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px 8px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  text-align: center;
+}
+
+.import-source-card:hover {
+  border-color: var(--accent-blue);
+  background: rgba(96, 165, 250, 0.06);
+}
+
+.import-source-card--active {
+  border-color: var(--accent-blue);
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.import-source-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.import-source-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.2;
+}
+
+.import-source-sub {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  line-height: 1.2;
+}
+
+/* Format segmented switch */
+.import-format-switch {
   margin-bottom: 14px;
+  font-size: 0.82rem;
 }
 
 .import-error {

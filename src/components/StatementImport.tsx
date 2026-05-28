@@ -668,6 +668,8 @@ export default function StatementImport({ accounts, categories, onImport, onClos
   const [step, setStep] = useState<"upload" | "review">("upload");
   const [error, setError] = useState("");
   const [isParsing, setIsParsing] = useState(false);
+  const [sourceType, setSourceType] = useState<"auto" | "upi" | "card" | "bank">("auto");
+  const [fileFormat, setFileFormat] = useState<"auto" | "pdf" | "spreadsheet">("auto");
 
   const expCategories = categories.filter((c) => c.kind === "expense");
   const incCategories = categories.filter((c) => c.kind === "income");
@@ -678,7 +680,9 @@ export default function StatementImport({ accounts, categories, onImport, onClos
     setIsParsing(true);
     try {
       const buffer = await file.arrayBuffer();
-      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const isPdf =
+        fileFormat === "pdf" ||
+        (fileFormat !== "spreadsheet" && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")));
       const pdfSourceBytes = isPdf ? new Uint8Array(buffer) : null;
 
       let rows: Record<string, unknown>[];
@@ -757,10 +761,12 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         }
 
         // Priority 1: PhonePe statement detection and extraction
+        // Skip if user explicitly chose Card or Bank
+        const forcePhonePe = sourceType === "upi";
+        const skipPhonePe  = sourceType === "card" || sourceType === "bank";
         try {
-          console.log("[PDF] Checking if PhonePe statement...", pdfResult.lineGroups.length, "line groups");
-          if (isPhonePeStatement(pdfResult.lineGroups)) {
-            console.log("[PDF] Detected PhonePe statement, extracting...");
+          if (forcePhonePe || (!skipPhonePe && isPhonePeStatement(pdfResult.lineGroups))) {
+            console.log("[PDF] PhonePe/UPI extraction...");
             const phonepeRawTxs = extractPhonePeTransactions(pdfResult.lineGroups);
             console.log("[PDF] PhonePe extraction completed:", phonepeRawTxs.length, "transactions");
             if (phonepeRawTxs.length > 0) {
@@ -913,12 +919,17 @@ export default function StatementImport({ accounts, categories, onImport, onClos
   const allSelected = staged.length > 0 && staged.every((tx) => tx.selected);
 
   // ── Upload step ───────────────────────────────────────────────────────────
+  const fileAccept =
+    fileFormat === "pdf" ? ".pdf" :
+    fileFormat === "spreadsheet" ? ".csv,.xlsx,.xls" :
+    ".csv,.xlsx,.xls,.pdf";
+
   if (step === "upload") {
     return (
       <div className="import-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="import-modal panel">
           <div className="import-header">
-            <h2>Import Bank Statement</h2>
+            <h2>Import Statement</h2>
             <button type="button" className="ghost-btn icon-btn" aria-label="Close" onClick={onClose}>
               <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
                 <path d="M6 6l12 12M6 18L18 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -926,9 +937,35 @@ export default function StatementImport({ accounts, categories, onImport, onClos
             </button>
           </div>
 
-          <p className="import-sub">
-            Works with CSV and Excel (.xlsx) from HDFC, SBI, ICICI, Axis, PhonePe, GPay, and most credit cards.
-          </p>
+          {/* Source type selector */}
+          <p className="import-section-label">What are you importing?</p>
+          <div className="import-source-cards">
+            {([
+              { id: "auto",  icon: "✦", label: "Auto-detect" },
+              { id: "upi",   icon: "📱", label: "UPI / Wallet", sub: "PhonePe, GPay" },
+              { id: "card",  icon: "💳", label: "Credit / Debit Card", sub: "SBI Card, HDFC, Amex" },
+              { id: "bank",  icon: "🏦", label: "Bank Account", sub: "SBI, ICICI, Axis" },
+            ] as { id: "auto"|"upi"|"card"|"bank"; icon: string; label: string; sub?: string }[]).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`import-source-card${sourceType === s.id ? " import-source-card--active" : ""}`}
+                onClick={() => setSourceType(s.id)}
+              >
+                <span className="import-source-icon">{s.icon}</span>
+                <span className="import-source-label">{s.label}</span>
+                {s.sub && <span className="import-source-sub">{s.sub}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* File format selector */}
+          <p className="import-section-label" style={{ marginTop: 14 }}>File format</p>
+          <div className="segmented-switch import-format-switch">
+            <button type="button" className={fileFormat === "auto" ? "active" : ""} onClick={() => setFileFormat("auto")}>Auto</button>
+            <button type="button" className={fileFormat === "pdf" ? "active" : ""} onClick={() => setFileFormat("pdf")}>PDF</button>
+            <button type="button" className={fileFormat === "spreadsheet" ? "active" : ""} onClick={() => setFileFormat("spreadsheet")}>Excel / CSV</button>
+          </div>
 
           {error && <p className="import-error">{error}</p>}
 
@@ -952,7 +989,9 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                   <polyline points="9 15 12 12 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <p className="import-dropzone-label">Tap to select or drag a file here</p>
-                <p className="import-dropzone-hint">PDF · CSV · XLS · XLSX</p>
+                <p className="import-dropzone-hint">
+                  {fileFormat === "pdf" ? "PDF" : fileFormat === "spreadsheet" ? "CSV · XLS · XLSX" : "PDF · CSV · XLS · XLSX"}
+                </p>
               </>
             )}
           </div>
@@ -960,16 +999,14 @@ export default function StatementImport({ accounts, categories, onImport, onClos
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.xlsx,.xls,.pdf"
+            accept={fileAccept}
             style={{ display: "none" }}
             onChange={handleFileChange}
           />
 
           <p className="import-tip">
-            Supports <strong>PDF</strong>, <strong>CSV</strong>, and <strong>Excel</strong> statements from most Indian banks
-            (HDFC, SBI, ICICI, Axis, PhonePe, GPay, credit cards…).
-            PDF must be a <em>digital</em> statement (text selectable) — scanned image PDFs are not supported.
-            For best results, use CSV/Excel export from your bank app.
+            PDF must be a <em>digital</em> statement (text selectable) — scanned/image PDFs are not supported.
+            For most reliable parsing use CSV or Excel export from your bank’s portal.
           </p>
         </div>
       </div>
