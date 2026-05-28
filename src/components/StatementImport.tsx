@@ -9,6 +9,7 @@ interface PdfCell { x: number; y: number; text: string; }
 // Regex patterns used exclusively by the PDF parser
 // Date: DD/MM/YYYY, YYYY-MM-DD, DD MMM YYYY, and MMM DD, YYYY (PhonePe style)
 const PDF_DATE_RX = /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{2,4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{2,4})\b/i;
+const PDF_DATE_START_RX = /^\s*(\d{1,2}[\/.-]\d{1,2}[\/.-](?:\d{2}|19\d{2}|20\d{2})|(?:19|20)\d{2}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(?:\d{2}|19\d{2}|20\d{2})|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+(?:\d{2}|19\d{2}|20\d{2}))/i;
 // Monetary amount: decimal values always allowed; integer values only when currency marker exists.
 const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*\d{1,3}(?:,\d{2,3})*\.\d{1,2}|[+-]?\s*\d+\.\d{1,2})/gi;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
@@ -196,8 +197,9 @@ function extractAmountAndKind(
     const second = useMatches[1].value;
     if (first > 0 && second === 0) return { amount: first,  kind: "expense" }; // Debit
     if (second > 0 && first === 0) return { amount: second, kind: "income" };  // Credit
-    // Both non-zero: pick the smaller as the actual transaction (other is running balance)
-    return { amount: Math.min(first, second), kind: "expense" };
+    // Both non-zero: in card statements this is often "tax + actual txn amount".
+    // Prefer the rightmost value (usually the actual billed amount with a trailing type code).
+    return { amount: second, kind: "expense" };
   }
 
   // Single amount
@@ -277,7 +279,7 @@ function patternExtractTransactions(
     // include noisy lines in the middle of a transaction block.
     if (NOISE_RX.test(raw)) continue;
 
-    const dateMatch = raw.match(PDF_DATE_RX);
+    const dateMatch = raw.match(PDF_DATE_START_RX);
 
     if (dateMatch) {
       // ── New transaction starts here ─────────────────────────────────────
@@ -321,7 +323,7 @@ function patternExtractTransactions(
           .replace(/\s{2,}/g, " ")
           .trim();
         if (descPart.length > 1) wip.desc += " " + descPart;
-      } else if (!amtKind || amtKind.amount === 0) {
+      } else if ((!amtKind || amtKind.amount === 0) && !wip.hasAmount) {
         // Pure text continuation (multi-line merchant name)
         wip.desc += " " + raw;
       }
