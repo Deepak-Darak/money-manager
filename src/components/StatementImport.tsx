@@ -205,12 +205,13 @@ function extractAmountAndKind(
   const amount = match.value;
   const idxEnd = match.index + match.token.length;
 
-  // Check ~12 chars around the amount for Dr/Cr markers
-  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 14);
+  // Check chars around the amount for Dr/Cr markers
+  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 20);
   const hasPlus = /(^|\s)\+/.test(match.token);
   const hasMinus = /(^|\s)-/.test(match.token);
-  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|reversal/i.test(near);
-  const isExpenseHint = /Dr\b|\bDR\b|debit|paid|sent|purchase|upi\s*pay/i.test(near);
+  // SBI Card style: amount followed by single-letter type code (C=credit, D=debit, M/FP/EN/BT=debit variants)
+  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|reversal|\s+C(?:\s|$)|\s+T(?:\s|$)/i.test(near);
+  const isExpenseHint = /Dr\b|\bDR\b|debit|paid|sent|purchase|upi\s*pay|\s+D(?:\s|$)|\s+M(?:\s|$)|\s+FP(?:\s|$)|\s+EN(?:\s|$)|\s+BT(?:\s|$)/i.test(near);
 
   if (hasPlus || isIncomeHint) return { amount, kind: "income" };
   if (hasMinus || isExpenseHint) return { amount, kind: "expense" };
@@ -247,6 +248,9 @@ function patternExtractTransactions(
   function flush() {
     if (!wip || wip.amount <= 0) { wip = null; return; }
     const desc = wip.desc
+      .replace(/\b[A-Z0-9]{3}[A-Z0-9]*\d[A-Z0-9]{8,}\b/g, "") // SBI Card / bank transaction IDs (e.g. 000DP216103XQRD79MB3CF2)
+      .replace(/\s+[CDMTB]\s*$/g, "") // Trailing SBI Card type code
+      .replace(/\s+FP\s*$/g, "").replace(/\s+EN\s*$/g, "").replace(/\s+BT\s*$/g, "")
       .replace(/\s{2,}/g, " ")
       .replace(/^[\s\-|]+|[\s\-|]+$/g, "")
       .trim();
@@ -284,10 +288,13 @@ function patternExtractTransactions(
         .trim();
 
       const amtKind = extractAmountAndKind(afterDate);
-      // Remove monetary values and Dr/Cr markers from description
+      // Remove monetary values, Dr/Cr markers and SBI Card type codes from description
       const cleanDesc = afterDate
         .replace(PDF_AMOUNT_RX, "")
         .replace(/\b(?:Dr|Cr)\b/g, "")
+        .replace(/\s+[CDMT]\s*$/, "") // SBI Card trailing type code (C/D/M/T)
+        .replace(/\s+(?:FP|EN|BT)\s*$/, "")
+        .replace(/\b[A-Z0-9]{3}[A-Z0-9]*\d[A-Z0-9]{8,}\b/g, "") // Bank transaction IDs
         .replace(/\s{2,}/g, " ")
         .trim();
 
@@ -457,16 +464,32 @@ function parseDate(val: unknown): string {
     if (parsed) return parsed;
   }
 
-  // MMM DD, YYYY (e.g., Apr 29, 2026)
-  const mdyWords = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{4})$/i);
-  if (mdyWords) {
-    const months: Record<string, number> = {
+  // DD MMM YY or DD MMM YYYY (SBI Card style: "14 Apr 26", "08 May 2026")
+  const dmyWords = str.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{2,4})$/i);
+  if (dmyWords) {
+    const MONTH_NUMS: Record<string, number> = {
       jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
       jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
     };
-    const month = months[mdyWords[1].toLowerCase().slice(0, 3)];
+    const day = parseInt(dmyWords[1]);
+    const month = MONTH_NUMS[dmyWords[2].toLowerCase().slice(0, 3)];
+    let year = parseInt(dmyWords[3]);
+    if (year < 100) year += 2000;
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
+  }
+
+  // MMM DD, YYYY (e.g., Apr 29, 2026)
+  const mdyWords = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{2,4})$/i);
+  if (mdyWords) {
+    const MONTH_NUMS: Record<string, number> = {
+      jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    };
+    const month = MONTH_NUMS[mdyWords[1].toLowerCase().slice(0, 3)];
     const day = parseInt(mdyWords[2]);
-    const year = parseInt(mdyWords[3]);
+    let year = parseInt(mdyWords[3]);
+    if (year < 100) year += 2000;
     const parsed = formatYmdUtc(year, month, day);
     if (parsed) return parsed;
   }
@@ -511,16 +534,32 @@ function parseDateOrNull(val: unknown): string | null {
     if (parsed) return parsed;
   }
 
-  // MMM DD, YYYY (e.g., Apr 29, 2026)
-  const mdyWords = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{4})$/i);
-  if (mdyWords) {
-    const months: Record<string, number> = {
+  // DD MMM YY or DD MMM YYYY (SBI Card style)
+  const dmyWords2 = str.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{2,4})$/i);
+  if (dmyWords2) {
+    const MONTH_NUMS: Record<string, number> = {
       jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
       jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
     };
-    const month = months[mdyWords[1].toLowerCase().slice(0, 3)];
-    const day = parseInt(mdyWords[2]);
-    const year = parseInt(mdyWords[3]);
+    const day = parseInt(dmyWords2[1]);
+    const month = MONTH_NUMS[dmyWords2[2].toLowerCase().slice(0, 3)];
+    let year = parseInt(dmyWords2[3]);
+    if (year < 100) year += 2000;
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
+  }
+
+  // MMM DD, YYYY
+  const mdyWords2 = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{2,4})$/i);
+  if (mdyWords2) {
+    const MONTH_NUMS: Record<string, number> = {
+      jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    };
+    const month = MONTH_NUMS[mdyWords2[1].toLowerCase().slice(0, 3)];
+    const day = parseInt(mdyWords2[2]);
+    let year = parseInt(mdyWords2[3]);
+    if (year < 100) year += 2000;
     const parsed = formatYmdUtc(year, month, day);
     if (parsed) return parsed;
   }
