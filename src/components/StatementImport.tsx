@@ -8,6 +8,7 @@ interface PdfCell { x: number; y: number; text: string; }
 
 // Regex patterns used exclusively by the PDF parser
 const PDF_DATE_START_RX = /^\s*(\d{1,2}[\/.-]\d{1,2}[\/.-](?:\d{2}|19\d{2}|20\d{2})|(?:19|20)\d{2}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(?:\d{2}|19\d{2}|20\d{2})|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+(?:\d{2}|19\d{2}|20\d{2}))/i;
+const PDF_SUMMARY_ROW_RX = /payments?\s*,?\s*additions?|credits?\s*\(|debits?\s*\(|interest\s*charges|statement\s*summary|total\s*outstanding|minimum\s*amount\s*due|tax\s*invoice|declaration/i;
 // Monetary amount: decimal values always allowed; integer values only when currency marker exists.
 const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*\d{1,3}(?:,\d{2,3})*\.\d{1,2}|[+-]?\s*\d+\.\d{1,2})/gi;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
@@ -286,6 +287,12 @@ function patternExtractTransactions(
       const afterDate = raw
         .slice(raw.indexOf(dateMatch[0]) + dateMatch[0].length)
         .trim();
+
+      // Skip dated summary/header rows that are not actual transactions.
+      if (PDF_SUMMARY_ROW_RX.test(afterDate)) {
+        wip = null;
+        continue;
+      }
 
       const amtKind = extractAmountAndKind(afterDate);
       // Remove monetary values, Dr/Cr markers and SBI Card type codes from description
@@ -823,11 +830,18 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         }
 
         // Priority 2: Column-based extraction (clean structured tables)
-        if (sourceType === "card") {
+        const rawHeaderLine = pdfResult.rawHeaders.join(" ").toLowerCase();
+        const looksLikeCardHeader =
+          /transaction\s*details/.test(rawHeaderLine) &&
+          /amount/.test(rawHeaderLine);
+
+        // Card-like PDFs are usually better handled by pattern extraction
+        // because visual table columns in PDF text streams are often misaligned.
+        if (sourceType === "card" || (sourceType === "auto" && looksLikeCardHeader)) {
           // Card PDFs are often visually tabular but semantically noisy for column mapping.
           // Pattern extractor is usually more reliable for this class.
           const patternTxs = patternExtractTransactions(pdfResult.lineGroups, defaultAccountId);
-          console.log("[PDF] Card mode pattern extraction found", patternTxs.length, "transactions");
+          console.log("[PDF] Card/auto-cardlike pattern extraction found", patternTxs.length, "transactions");
           if (patternTxs.length > 0) {
             setStaged(patternTxs);
             setStep("review");
