@@ -51,6 +51,14 @@ export function extractPhonePeTransactions(
 ): PhonePeTransaction[] {
   const lines = lineGroups.map((g) => g.map((c) => c.text).join(" ").trim());
 
+  function isMetadataLine(line: string): boolean {
+    return (
+      /^(transaction\s*id|utr\s*no|debited?\s+from|credited?\s+to):/i.test(line) ||
+      /^no\s*:/i.test(line) ||
+      /^\d{10,}$/.test(line.replace(/[\s,]/g, ""))
+    );
+  }
+
   interface WipBlock {
     dateStr: string;
     descLines: string[];
@@ -172,11 +180,7 @@ export function extractPhonePeTransactions(
     awaitingAmount = false;
 
     // Skip metadata lines (UTR, Transaction ID, Debited from, Credited to)
-    if (
-      /^(transaction\s*id|utr\s*no|debited?\s+from|credited?\s+to):/i.test(
-        line
-      )
-    ) {
+    if (isMetadataLine(line)) {
       continue;
     }
 
@@ -193,8 +197,14 @@ export function extractPhonePeTransactions(
       continue;
     }
 
-    // Any other non-empty line that's not metadata → append to description
-    if (line.length > 1 && (!wip.hasAmount || /^(message|remarks?|note)\b/i.test(line))) {
+    // Preserve sender information for incoming credits (e.g. "From Rahul", "Sender: xyz@upi")
+    if (/^(from|sender|received\s+from|payer)\b/i.test(line)) {
+      wip.descLines.push(line);
+      continue;
+    }
+
+    // Any other meaningful non-metadata line may carry merchant/sender text.
+    if (line.length > 1) {
       wip.descLines.push(line);
     }
   }
