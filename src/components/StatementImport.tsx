@@ -684,6 +684,7 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         fileFormat === "pdf" ||
         (fileFormat !== "spreadsheet" && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")));
       const pdfSourceBytes = isPdf ? new Uint8Array(buffer) : null;
+      let pdfLineGroups: PdfCell[][] = [];
 
       let rows: Record<string, unknown>[];
       let headers: string[];
@@ -760,6 +761,8 @@ export default function StatementImport({ accounts, categories, onImport, onClos
           return;
         }
 
+        pdfLineGroups = pdfResult.lineGroups;
+
         // Priority 1: PhonePe statement detection and extraction
         // Skip if user explicitly chose Card or Bank
         const forcePhonePe = sourceType === "upi";
@@ -795,6 +798,20 @@ export default function StatementImport({ accounts, categories, onImport, onClos
         }
 
         // Priority 2: Column-based extraction (clean structured tables)
+        if (sourceType === "card") {
+          // Card PDFs are often visually tabular but semantically noisy for column mapping.
+          // Pattern extractor is usually more reliable for this class.
+          const patternTxs = patternExtractTransactions(pdfResult.lineGroups, defaultAccountId);
+          console.log("[PDF] Card mode pattern extraction found", patternTxs.length, "transactions");
+          if (patternTxs.length > 0) {
+            setStaged(patternTxs);
+            setStep("review");
+            setIsParsing(false);
+            return;
+          }
+          // Fall through to column mode if pattern did not find rows.
+        }
+
         if (pdfResult.rows.length >= 3) {
           console.log("[PDF] Using column-based extraction with", pdfResult.rows.length, "rows");
           // Phase 1 succeeded — feed into the existing column-based pipeline below
@@ -837,6 +854,16 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       const colMap = detectColumns(headers);
 
       if (!colMap.desc) {
+        if (isPdf && pdfLineGroups.length > 0) {
+          const patternTxs = patternExtractTransactions(pdfLineGroups, defaultAccountId);
+          console.log("[PDF] Fallback pattern extraction (no desc column) found", patternTxs.length, "transactions");
+          if (patternTxs.length > 0) {
+            setStaged(patternTxs);
+            setStep("review");
+            setIsParsing(false);
+            return;
+          }
+        }
         setError(
           `Could not detect a description/narration column. ` +
           `Detected columns: ${headers.slice(0, 8).join(", ")}. ` +
@@ -849,6 +876,16 @@ export default function StatementImport({ accounts, categories, onImport, onClos
       const txs = parseRows(rows, colMap, defaultAccountId);
 
       if (txs.length === 0) {
+        if (isPdf && pdfLineGroups.length > 0) {
+          const patternTxs = patternExtractTransactions(pdfLineGroups, defaultAccountId);
+          console.log("[PDF] Fallback pattern extraction (0 parsed rows) found", patternTxs.length, "transactions");
+          if (patternTxs.length > 0) {
+            setStaged(patternTxs);
+            setStep("review");
+            setIsParsing(false);
+            return;
+          }
+        }
         setError("Parsed 0 transactions. No rows with recognisable amounts were found.");
         setIsParsing(false);
         return;
