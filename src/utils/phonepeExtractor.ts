@@ -53,10 +53,17 @@ export function extractPhonePeTransactions(
 
   function isMetadataLine(line: string): boolean {
     return (
-      /^(transaction\s*id|utr\s*no|debited?\s+from|credited?\s+to):/i.test(line) ||
+      /^(transaction\s*id\s*:?|utr\s*no\s*:?|debited?\s+from\s*:?|credited?\s+to\s*:?)/i.test(line) ||
       /^no\s*:/i.test(line) ||
       /^\d{10,}$/.test(line.replace(/[\s,]/g, ""))
     );
+  }
+
+  function getAmountFromLine(line: string): string | null {
+    const m = line.match(/(?:^|\s)(?:₹|inr\s*)?([\d,]+(?:\.\d{1,2})?)(?:\s|$)/i);
+    if (!m) return null;
+    const parsed = parsePhonePeAmount(m[1]);
+    return parsed > 0 ? m[1] : null;
   }
 
   interface WipBlock {
@@ -86,12 +93,13 @@ export function extractPhonePeTransactions(
       .replace(/\bOLEX\d{15,}\b/g, "") // OLEX-prefixed IDs
       .replace(/\bAT\d{20,}\b/g, "") // AT-prefixed IDs
       .replace(/\d{10,}/g, "") // Long bare numbers (UTR numbers)
-      .replace(/transaction\s*id\s*:\s*\w+/gi, "")
-      .replace(/utr\s*no\s*:\s*\w+/gi, "")
+      .replace(/transaction\s*id\s*:?[\s-]*[a-z0-9-]*/gi, "")
+      .replace(/utr\s*no\s*:?[\s-]*[a-z0-9-]*/gi, "")
       .replace(/credited?\s*(?:to|from)\s+xx\d{2,}/gi, "")
       .replace(/debited?\s+from\s+xx\d{2,}/gi, "")
       .replace(/debit\s+inr|credit\s+inr/gi, "")
       .replace(/xx\d{4}/gi, "")
+      .replace(/^(transaction\s*id|utr\s*no)\s*:?[\s-]*$/i, "")
       .replace(/No\s*:/gi, "") // Remove 'No :' artifact
       .replace(/\s{2,}/g, " ")
       .trim();
@@ -170,14 +178,20 @@ export function extractPhonePeTransactions(
       continue;
     }
 
-    // If awaiting amount and current line looks like a number, grab it
-    if (awaitingAmount && /^[\d,]+\.?\d*$/.test(line.trim())) {
-      wip.amountStr = line.trim();
-      wip.hasAmount = true;
-      awaitingAmount = false;
-      continue;
+    // If amount is split onto later lines, keep waiting through metadata/noise until found.
+    if (awaitingAmount) {
+      const splitAmount = getAmountFromLine(line);
+      if (splitAmount) {
+        wip.amountStr = splitAmount;
+        wip.hasAmount = true;
+        awaitingAmount = false;
+        continue;
+      }
+      // Keep waiting; don't accidentally turn metadata into title.
+      if (isMetadataLine(line)) {
+        continue;
+      }
     }
-    awaitingAmount = false;
 
     // Skip metadata lines (UTR, Transaction ID, Debited from, Credited to)
     if (isMetadataLine(line)) {
