@@ -422,11 +422,21 @@ function parseAmount(val: unknown): number {
 function formatYmdUtc(year: number, month: number, day: number): string | null {
   const d = new Date(Date.UTC(year, month - 1, day));
   if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+function formatYmdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function parseDate(val: unknown): string {
-  if (!val && val !== 0) return new Date().toISOString().slice(0, 10);
+  if (!val && val !== 0) return formatYmdLocal(new Date());
   const str = String(val).trim();
 
   // DD/MM/YYYY or DD-MM-YYYY  
@@ -447,18 +457,35 @@ function parseDate(val: unknown): string {
     if (parsed) return parsed;
   }
 
+  // MMM DD, YYYY (e.g., Apr 29, 2026)
+  const mdyWords = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (mdyWords) {
+    const months: Record<string, number> = {
+      jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    };
+    const month = months[mdyWords[1].toLowerCase().slice(0, 3)];
+    const day = parseInt(mdyWords[2]);
+    const year = parseInt(mdyWords[3]);
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
+  }
+
   // Excel serial date (number between 40000–60000 ≈ year 2009–2064)
   const serial = Number(val);
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    const d = new Date((serial - 25569) * 86400 * 1000);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const utcMs = (Math.floor(serial) - 25569) * 86400 * 1000;
+    const d = new Date(utcMs);
+    if (!isNaN(d.getTime())) {
+      return formatYmdUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()) ?? formatYmdLocal(d);
+    }
   }
 
   // Fallback
   const fallback = new Date(str);
-  if (!isNaN(fallback.getTime())) return fallback.toISOString().slice(0, 10);
+  if (!isNaN(fallback.getTime())) return formatYmdLocal(fallback);
 
-  return new Date().toISOString().slice(0, 10);
+  return formatYmdLocal(new Date());
 }
 
 function parseDateOrNull(val: unknown): string | null {
@@ -484,15 +511,32 @@ function parseDateOrNull(val: unknown): string | null {
     if (parsed) return parsed;
   }
 
+  // MMM DD, YYYY (e.g., Apr 29, 2026)
+  const mdyWords = str.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (mdyWords) {
+    const months: Record<string, number> = {
+      jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    };
+    const month = months[mdyWords[1].toLowerCase().slice(0, 3)];
+    const day = parseInt(mdyWords[2]);
+    const year = parseInt(mdyWords[3]);
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
+  }
+
   // Excel serial date (number between 40000–60000 ≈ year 2009–2064)
   const serial = Number(val);
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    const d = new Date((serial - 25569) * 86400 * 1000);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const utcMs = (Math.floor(serial) - 25569) * 86400 * 1000;
+    const d = new Date(utcMs);
+    if (!isNaN(d.getTime())) {
+      return formatYmdUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()) ?? formatYmdLocal(d);
+    }
   }
 
   const fallback = new Date(str);
-  if (!isNaN(fallback.getTime())) return fallback.toISOString().slice(0, 10);
+  if (!isNaN(fallback.getTime())) return formatYmdLocal(fallback);
 
   return null;
 }

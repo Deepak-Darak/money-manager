@@ -234,8 +234,11 @@ function parsePhonePeDate(dateStr: string): string | null {
 
   const d = new Date(Date.UTC(year, month, day));
   if (isNaN(d.getTime())) return null;
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month || d.getUTCDate() !== day) return null;
 
-  return d.toISOString().slice(0, 10);
+  const mm = String(month + 1).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
 }
 
 function parsePhonePeAmount(amountStr: string): number {
