@@ -455,6 +455,42 @@ function parseDate(val: unknown): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function parseDateOrNull(val: unknown): string | null {
+  if (!val && val !== 0) return null;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (dmy) {
+    let year = parseInt(dmy[3]);
+    if (year < 100) year += 2000;
+    const day = parseInt(dmy[1]);
+    const month = parseInt(dmy[2]);
+    const d = new Date(year, month - 1, day);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+
+  // YYYY-MM-DD
+  const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (ymd) {
+    const d = new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+
+  // Excel serial date (number between 40000–60000 ≈ year 2009–2064)
+  const serial = Number(val);
+  if (!isNaN(serial) && serial > 40000 && serial < 60000) {
+    const d = new Date((serial - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+
+  const fallback = new Date(str);
+  if (!isNaN(fallback.getTime())) return fallback.toISOString().slice(0, 10);
+
+  return null;
+}
+
 function autoCategory(title: string, fallbackKind: "income" | "expense"): { categoryId: string; kind: "income" | "expense" } {
   for (const rule of CATEGORY_RULES) {
     if (rule.pattern.test(title)) {
@@ -469,12 +505,16 @@ function autoCategory(title: string, fallbackKind: "income" | "expense"): { cate
 
 function parseRows(rows: Record<string, unknown>[], colMap: ColumnMap, defaultAccountId: string): StagedTx[] {
   const txs: StagedTx[] = [];
+  let lastDate: string | null = null;
 
   for (const row of rows) {
     const rawDesc = colMap.desc ? String(row[colMap.desc] ?? "").trim() : "";
     if (!rawDesc) continue;
 
-    const date = parseDate(colMap.date ? row[colMap.date] : "");
+    const parsedDate = parseDateOrNull(colMap.date ? row[colMap.date] : "");
+    if (parsedDate) lastDate = parsedDate;
+    const date = parsedDate ?? lastDate;
+    if (!date) continue;
     let amount = 0;
     let kind: "income" | "expense" = "expense";
 

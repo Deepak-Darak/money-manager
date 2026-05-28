@@ -435,6 +435,11 @@ export default function App() {
   const editingTransaction = editingTransactionId
     ? transactions.find((t) => t.id === editingTransactionId)
     : undefined;
+  const syncStatusLabel = isSyncing
+    ? "Syncing"
+    : /cannot reach|failed|error|rejected|expired|invalid/i.test(authStatus)
+      ? "Sync error"
+      : "Synced";
 
   function addTransaction(payload: NewTransactionInput) {
     const nextTransaction: Transaction = {
@@ -664,7 +669,9 @@ export default function App() {
           <p>{userEmail}</p>
         </div>
         <div className="session-strip-actions">
-          <span>{isSyncing ? "Syncing..." : authStatus}</span>
+          <span className="session-sync-status" title={isSyncing ? "Syncing..." : authStatus}>
+            {syncStatusLabel}
+          </span>
           <button
             type="button"
             className="ghost-btn import-trigger-btn"
