@@ -360,9 +360,11 @@ interface StagedTx {
   date: string;
   title: string;
   amount: number;
-  kind: "income" | "expense";
+  kind: "income" | "expense" | "transfer";
   categoryId: string;
   accountId: string;
+  fromAccountId?: string;
+  toAccountId?: string;
 }
 
 interface ColumnMap {
@@ -377,10 +379,12 @@ interface ColumnMap {
 export interface ImportedTx {
   title: string;
   amount: number;
-  kind: "income" | "expense";
+  kind: "income" | "expense" | "transfer";
   date: string;
   categoryId?: string;
   accountId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
 }
 
 interface Props {
@@ -881,14 +885,26 @@ export default function StatementImport({ accounts, categories, onImport, onClos
   function handleImport() {
     const toImport = staged.filter((tx) => tx.selected && tx.amount > 0);
     onImport(
-      toImport.map((tx) => ({
-        title: tx.title,
-        amount: tx.amount,
-        kind: tx.kind,
-        date: tx.date,
-        categoryId: tx.categoryId || undefined,
-        accountId: tx.accountId || undefined,
-      }))
+      toImport.map((tx) => {
+        if (tx.kind === "transfer") {
+          return {
+            title: tx.title || "Transfer",
+            amount: tx.amount,
+            kind: "transfer" as const,
+            date: tx.date,
+            fromAccountId: tx.fromAccountId || undefined,
+            toAccountId: tx.toAccountId || undefined,
+          };
+        }
+        return {
+          title: tx.title,
+          amount: tx.amount,
+          kind: tx.kind,
+          date: tx.date,
+          categoryId: tx.categoryId || undefined,
+          accountId: tx.accountId || undefined,
+        };
+      })
     );
     onClose();
   }
@@ -1020,13 +1036,18 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       className="import-cell-input"
                       value={tx.kind}
                       onChange={(e) => {
-                        const kind = e.target.value as "income" | "expense";
-                        const catList = kind === "income" ? incCategories : expCategories;
-                        updateRow(tx._id, { kind, categoryId: catList[catList.length - 1]?.id ?? "" });
+                        const kind = e.target.value as "income" | "expense" | "transfer";
+                        if (kind === "transfer") {
+                          updateRow(tx._id, { kind, categoryId: "", accountId: "" });
+                        } else {
+                          const catList = kind === "income" ? incCategories : expCategories;
+                          updateRow(tx._id, { kind, categoryId: catList[catList.length - 1]?.id ?? "", fromAccountId: undefined, toAccountId: undefined });
+                        }
                       }}
                     >
                       <option value="expense">Expense</option>
                       <option value="income">Income</option>
+                      <option value="transfer">Transfer</option>
                     </select>
                   </td>
                   <td data-label="Amount">
@@ -1040,27 +1061,56 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                     />
                   </td>
                   <td data-label="Category">
-                    <select
-                      className="import-cell-input"
-                      value={tx.categoryId}
-                      onChange={(e) => updateRow(tx._id, { categoryId: e.target.value })}
-                    >
-                      {(tx.kind === "income" ? incCategories : expCategories).map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    {tx.kind === "transfer" ? (
+                      <div className="import-transfer-accounts">
+                        <select
+                          className="import-cell-input"
+                          value={tx.fromAccountId ?? ""}
+                          onChange={(e) => updateRow(tx._id, { fromAccountId: e.target.value })}
+                          title="From account"
+                        >
+                          <option value="">From…</option>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.name}</option>
+                          ))}
+                        </select>
+                        <select
+                          className="import-cell-input"
+                          value={tx.toAccountId ?? ""}
+                          onChange={(e) => updateRow(tx._id, { toAccountId: e.target.value })}
+                          title="To account"
+                        >
+                          <option value="">To…</option>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <select
+                        className="import-cell-input"
+                        value={tx.categoryId}
+                        onChange={(e) => updateRow(tx._id, { categoryId: e.target.value })}
+                      >
+                        {(tx.kind === "income" ? incCategories : expCategories).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td data-label="Account">
-                    <select
-                      className="import-cell-input"
-                      value={tx.accountId}
-                      onChange={(e) => updateRow(tx._id, { accountId: e.target.value })}
-                    >
-                      <option value="">— no account —</option>
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
+                    {tx.kind !== "transfer" && (
+                      <select
+                        className="import-cell-input"
+                        value={tx.accountId}
+                        onChange={(e) => updateRow(tx._id, { accountId: e.target.value })}
+                      >
+                        <option value="">— no account —</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                 </tr>
               ))}

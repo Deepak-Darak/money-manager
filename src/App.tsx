@@ -7,9 +7,9 @@ import StatementImport, { type ImportedTx } from "./components/StatementImport";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
 import TransactionTimeline from "./components/TransactionTimeline";
 import { defaultAccountTypes } from "./data/accountGroups";
-import { categories } from "./data/categories";
+import { categories as builtinCategories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
-import type { Account, AccountType, AppDataSnapshot, Transaction } from "./types/finance";
+import type { Account, AccountType, AppDataSnapshot, Category, Transaction } from "./types/finance";
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
 
@@ -212,6 +212,7 @@ export default function App() {
     "mm-account-types",
     defaultAccountTypes
   );
+  const [customCategories, setCustomCategories] = useLocalStorage<Category[]>("mm-custom-categories", []);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [focusDate, setFocusDate] = useState(getTodayString);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
@@ -248,11 +249,14 @@ export default function App() {
     (t) => t.kind === "expense" && t.date.startsWith(dashboardMonth)
   );
 
+  const allCategories = useMemo(() => [...builtinCategories, ...customCategories], [customCategories]);
+
   const snapshot: AppDataSnapshot = {
     version: 1,
     transactions,
     accounts,
-    accountTypes
+    accountTypes,
+    customCategories,
   };
 
   useEffect(() => {
@@ -349,6 +353,7 @@ export default function App() {
     setTransactions(next.transactions ?? []);
     setAccounts(next.accounts ?? []);
     setAccountTypes(next.accountTypes?.length ? next.accountTypes : defaultAccountTypes);
+    if (next.customCategories?.length) setCustomCategories(next.customCategories);
     setEditingTransactionId(null);
   }
 
@@ -562,6 +567,31 @@ export default function App() {
     setAccounts((current) => current.filter((a) => a.id !== id));
   }
 
+  function addCustomCategory(data: Omit<Category, "id">) {
+    setCustomCategories((current) => {
+      const baseId = slugify(data.name) || "custom-cat";
+      let id = baseId;
+      let counter = 2;
+      while ([...builtinCategories, ...current].some((c) => c.id === id)) {
+        id = `${baseId}-${counter}`;
+        counter += 1;
+      }
+      return [...current, { ...data, id }];
+    });
+  }
+
+  function deleteCustomCategory(id: string) {
+    setCustomCategories((current) => current.filter((c) => c.id !== id));
+    // reassign any transactions using this category to the "other" fallback
+    setTransactions((current) =>
+      current.map((tx) =>
+        tx.categoryId === id
+          ? { ...tx, categoryId: tx.kind === "income" ? "other-income" : "other-expense" }
+          : tx
+      )
+    );
+  }
+
   function importTransactions(txs: ImportedTx[]) {
     const now = new Date().toISOString();
     const newTxs = txs.map((tx) => ({
@@ -655,7 +685,7 @@ export default function App() {
       {showImport && (
         <StatementImport
           accounts={accounts}
-          categories={categories}
+          categories={allCategories}
           onImport={importTransactions}
           onClose={() => setShowImport(false)}
         />
@@ -741,7 +771,7 @@ export default function App() {
 
           <div className="dashboard-form-section">
             <TransactionForm
-              categories={categories}
+              categories={allCategories}
               accounts={accounts}
               onAddTransaction={addTransaction}
               formTitle="Add Transaction"
@@ -755,7 +785,7 @@ export default function App() {
           <div className="tab-content">
           {editingTransaction && (
             <TransactionForm
-              categories={categories}
+              categories={allCategories}
               accounts={accounts}
               onAddTransaction={updateTransaction}
               formTitle="Edit Transaction"
@@ -767,7 +797,7 @@ export default function App() {
 
           <TransactionTimeline
             transactions={transactions}
-            categories={categories}
+            categories={allCategories}
             accounts={accounts}
             onEdit={(tx) => {
               setEditingTransactionId(tx.id);
@@ -789,6 +819,10 @@ export default function App() {
             onAddType={addAccountType}
             onDeleteType={deleteAccountType}
             onDelete={deleteAccount}
+            categories={allCategories}
+            builtinCategoryIds={builtinCategories.map((c) => c.id)}
+            onAddCategory={addCustomCategory}
+            onDeleteCategory={deleteCustomCategory}
           />
           </div>
         )}
@@ -811,12 +845,12 @@ export default function App() {
 
             <ExpenseChart
               transactions={dashboardExpenseTransactions}
-              categories={categories}
+              categories={allCategories}
               label={dashboardMonth}
             />
 
             <div className="charts-analytics-wrap">
-              <ChartsDashboard transactions={transactions} categories={categories} />
+              <ChartsDashboard transactions={transactions} categories={allCategories} />
             </div>
           </div>
         )}

@@ -45,4 +45,5 @@ export interface AppDataSnapshot {
   transactions: Transaction[];
   accounts: Account[];
   accountTypes: AccountType[];
+  customCategories?: Category[];
 }

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import type { Account, AccountType } from "../types/finance";
+import type { Account, AccountType, Category } from "../types/finance";
 
 interface Props {
   accounts: Account[];
@@ -8,6 +8,10 @@ interface Props {
   onAddType: (t: Omit<AccountType, "id">) => void;
   onDeleteType: (id: string) => boolean;
   onDelete: (id: string) => void;
+  categories: Category[];
+  builtinCategoryIds: string[];
+  onAddCategory: (cat: Omit<Category, "id">) => void;
+  onDeleteCategory: (id: string) => void;
 }
 
 const fmt = new Intl.NumberFormat("en-IN", {
@@ -30,20 +34,33 @@ const BLANK_TYPE = {
   color: "#60a5fa"
 };
 
+const BLANK_CATEGORY = {
+  name: "",
+  kind: "expense" as "income" | "expense",
+  color: "#60a5fa",
+  icon: "",
+};
+
 export default function AccountsPage({
   accounts,
   accountTypes,
   onAdd,
   onAddType,
   onDeleteType,
-  onDelete
+  onDelete,
+  categories,
+  builtinCategoryIds,
+  onAddCategory,
+  onDeleteCategory,
 }: Props) {
   const [tab, setTab]           = useState<"asset" | "liability">("asset");
   const [showForm, setShowForm] = useState(false);
   const [showTypeForm, setShowTypeForm] = useState(false);
+  const [showCatForm, setShowCatForm] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [form, setForm]         = useState(BLANK);
   const [typeForm, setTypeForm] = useState(BLANK_TYPE);
+  const [catForm, setCatForm]   = useState(BLANK_CATEGORY);
   const [typeDeleteMessage, setTypeDeleteMessage] = useState("");
 
   useEffect(() => {
@@ -341,6 +358,106 @@ export default function AccountsPage({
           </button>
         </form>
       )}
+
+      {/* ── Categories section ─────────────────────────── */}
+      <div className="panel categories-section" style={{ marginTop: 16 }}>
+        <div className="account-group-header" style={{ marginBottom: 8 }}>
+          <h3>Categories</h3>
+          <button
+            type="button"
+            className="ghost-btn"
+            style={{ fontSize: "0.8rem" }}
+            onClick={() => setShowCatForm((s) => !s)}
+          >
+            {showCatForm ? "Cancel" : "+ Add Category"}
+          </button>
+        </div>
+
+        {["income", "expense"].map((kind) => {
+          const kindCats = categories.filter((c) => c.kind === kind);
+          if (kindCats.length === 0) return null;
+          return (
+            <div key={kind} style={{ marginBottom: 10 }}>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>{kind === "income" ? "Income" : "Expense"}</p>
+              <div className="category-chips">
+                {kindCats.map((c) => {
+                  const isCustom = !builtinCategoryIds.includes(c.id);
+                  return (
+                    <span
+                      key={c.id}
+                      className={`category-chip${isCustom ? " category-chip--custom" : ""}`}
+                      style={{ borderColor: c.color, color: c.color }}
+                    >
+                      {c.name}
+                      {isCustom && deleteMode && (
+                        <button
+                          type="button"
+                          className="category-chip-del"
+                          aria-label={`Delete ${c.name}`}
+                          onClick={() => onDeleteCategory(c.id)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        {showCatForm && (
+          <form
+            style={{ marginTop: 10 }}
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              if (!catForm.name.trim()) return;
+              onAddCategory({
+                name: catForm.name.trim(),
+                kind: catForm.kind,
+                color: catForm.color,
+                icon: catForm.name.trim().slice(0, 3).toUpperCase(),
+              });
+              setCatForm(BLANK_CATEGORY);
+              setShowCatForm(false);
+            }}
+          >
+            <div className="form-grid">
+              <label>
+                Name
+                <input
+                  value={catForm.name}
+                  onChange={(e) => setCatForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Investment"
+                  required
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  value={catForm.kind}
+                  onChange={(e) => setCatForm((f) => ({ ...f, kind: e.target.value as "income" | "expense" }))}
+                >
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+              </label>
+              <label>
+                Color
+                <input
+                  type="color"
+                  value={catForm.color}
+                  onChange={(e) => setCatForm((f) => ({ ...f, color: e.target.value }))}
+                />
+              </label>
+            </div>
+            <button type="submit" className="primary-btn" style={{ marginTop: 8 }}>
+              Save Category
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
