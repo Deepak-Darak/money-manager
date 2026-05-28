@@ -8,7 +8,10 @@ interface PdfCell { x: number; y: number; text: string; }
 
 // Regex patterns used exclusively by the PDF parser
 const PDF_DATE_START_RX = /^\s*(\d{1,2}[\/.-]\d{1,2}[\/.-](?:\d{2}|19\d{2}|20\d{2})|(?:19|20)\d{2}[\/.-]\d{1,2}[\/.-]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(?:\d{2}|19\d{2}|20\d{2})|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+(?:\d{2}|19\d{2}|20\d{2}))/i;
-const PDF_SUMMARY_ROW_RX = /payments?\s*,?\s*additions?|credits?\s*\(|debits?\s*\(|interest\s*charges|statement\s*summary|total\s*outstanding|minimum\s*amount\s*due|tax\s*invoice|declaration/i;
+// Summary rows are typically totals/headers that start with keywords like "payments" or "credits("
+// but NOT actual transactions that happen to contain "credit" (e.g., "TELE TRANSFER CREDIT")
+// Heuristic: actual transactions either have explicit amount markers (Cr/Dr) or specific merchant patterns
+const PDF_SUMMARY_ROW_RX = /^(?!.*(?:Cr|Dr)\b)(?:payments?\s*,?\s*additions?|interest\s*charges|statement\s*summary|total\s*outstanding|minimum\s*amount\s*due|tax\s*invoice|declaration)/i;
 // Monetary amount: decimal values always allowed; integer values only when currency marker exists.
 const PDF_AMOUNT_RX = /([+-]?\s*(?:₹|rs\.?|inr)\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|[+-]?\s*\d{1,3}(?:,\d{2,3})*\.\d{1,2}|[+-]?\s*\d+\.\d{1,2})/gi;
 // Lines to ignore entirely (ads, page numbers, account info, totals)
@@ -206,37 +209,34 @@ function extractAmountAndKind(
   const amount = match.value;
   const idxEnd = match.index + match.token.length;
 
-  // Check chars around the amount for Dr/Cr markers, especially immediately after
-  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 20);
-  const afterAmount = lineText.slice(idxEnd, Math.min(lineText.length, idxEnd + 15));
+  // PRIMARY SIGNAL: Look for "Cr" or "Dr" markers (most reliable for bank statements)
+  // Many bank formats (HDFC, SBI, etc.) use this to explicitly mark transaction type
+  const restOfLine = lineText.slice(idxEnd);
+  const hasCrMarker = /\bCr\b|\bCR\b/.test(restOfLine.slice(0, 20));
+  const hasDrMarker = /\bDr\b|\bDR\b/.test(restOfLine.slice(0, 20));
   
+  if (hasCrMarker) return { amount, kind: "income" };
+  if (hasDrMarker) return { amount, kind: "expense" };
+  
+  // If no explicit marker found, use context indicators
+  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 30);
   const hasPlus = /(^|\s)\+/.test(match.token);
   const hasMinus = /(^|\s)-/.test(match.token);
   
-  // Check for Cr/Dr markers immediately after amount (HDFC style: "115.40 Cr")
-  const hasCrAfter = /^\s*Cr(?:\s|$)/i.test(afterAmount);
-  const hasDrAfter = /^\s*Dr(?:\s|$)/i.test(afterAmount);
-  
-  // Keywords in full line context
-  const isCashback = /cashback/i.test(lineText);
-  const isRefundOnly = (/refund|reversal|reverse/i.test(lineText)) && !/razorpay|upi\s*pay|payment/i.test(lineText);
+  // Income-only keywords (unambiguous)
   const isPaymentReceived = /\bpayment\s+received\b/i.test(lineText);
-  const isPaymentSent = /razorpay|upi\s*pay/i.test(lineText);
+  const isTeleTransfer = /tele\s*transfer\s*credit/i.test(lineText);
   
-  // SBI Card style: amount followed by single-letter type code (C=credit, D=debit, M/FP/EN/BT=debit variants)
-  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|\s+C(?:\s|$)|\s+T(?:\s|$)/i.test(near);
-  const isExpenseHint = /Dr\b|\bDR\b|debit|paid|sent|purchase|upi\s*pay|\s+D(?:\s|$)|\s+M(?:\s|$)|\s+FP(?:\s|$)|\s+EN(?:\s|$)|\s+BT(?:\s|$)/i.test(near);
-
-  // Priority checks
-  if (hasCrAfter) return { amount, kind: "income" };
-  if (hasDrAfter) return { amount, kind: "expense" };
-  if (isCashback) return { amount, kind: "income" };
-  if (isRefundOnly) return { amount, kind: "income" };
+  // Debit/expense only keywords (unambiguous)
+  const isPurchase = /purchase|bought|paid|sent/i.test(near);
+  
+  if (hasPlus) return { amount, kind: "income" };
+  if (hasMinus) return { amount, kind: "expense" };
   if (isPaymentReceived) return { amount, kind: "income" };
-  if (isPaymentSent) return { amount, kind: "expense" };
-  if (hasPlus || isIncomeHint) return { amount, kind: "income" };
-  if (hasMinus || isExpenseHint) return { amount, kind: "expense" };
+  if (isTeleTransfer) return { amount, kind: "income" };
+  if (isPurchase) return { amount, kind: "expense" };
   
+  // Fallback: EXPENSE (most credit card transactions are purchases/debits)
   return { amount, kind: "expense" };
 }
 
