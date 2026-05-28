@@ -206,16 +206,37 @@ function extractAmountAndKind(
   const amount = match.value;
   const idxEnd = match.index + match.token.length;
 
-  // Check chars around the amount for Dr/Cr markers
+  // Check chars around the amount for Dr/Cr markers, especially immediately after
   const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 20);
+  const afterAmount = lineText.slice(idxEnd, Math.min(lineText.length, idxEnd + 15));
+  
   const hasPlus = /(^|\s)\+/.test(match.token);
   const hasMinus = /(^|\s)-/.test(match.token);
+  
+  // Check for Cr/Dr markers immediately after amount (HDFC style: "115.40 Cr")
+  const hasCrAfter = /^\s*Cr(?:\s|$)/i.test(afterAmount);
+  const hasDrAfter = /^\s*Dr(?:\s|$)/i.test(afterAmount);
+  
+  // Keywords in full line context
+  const isCashback = /cashback/i.test(lineText);
+  const isRefundOnly = (/refund|reversal|reverse/i.test(lineText)) && !/razorpay|upi\s*pay|payment/i.test(lineText);
+  const isPaymentReceived = /\bpayment\s+received\b/i.test(lineText);
+  const isPaymentSent = /razorpay|upi\s*pay/i.test(lineText);
+  
   // SBI Card style: amount followed by single-letter type code (C=credit, D=debit, M/FP/EN/BT=debit variants)
-  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|reversal|\s+C(?:\s|$)|\s+T(?:\s|$)/i.test(near);
+  const isIncomeHint = /Cr\b|\bCR\b|credit|received|refund|cashback|\s+C(?:\s|$)|\s+T(?:\s|$)/i.test(near);
   const isExpenseHint = /Dr\b|\bDR\b|debit|paid|sent|purchase|upi\s*pay|\s+D(?:\s|$)|\s+M(?:\s|$)|\s+FP(?:\s|$)|\s+EN(?:\s|$)|\s+BT(?:\s|$)/i.test(near);
 
+  // Priority checks
+  if (hasCrAfter) return { amount, kind: "income" };
+  if (hasDrAfter) return { amount, kind: "expense" };
+  if (isCashback) return { amount, kind: "income" };
+  if (isRefundOnly) return { amount, kind: "income" };
+  if (isPaymentReceived) return { amount, kind: "income" };
+  if (isPaymentSent) return { amount, kind: "expense" };
   if (hasPlus || isIncomeHint) return { amount, kind: "income" };
   if (hasMinus || isExpenseHint) return { amount, kind: "expense" };
+  
   return { amount, kind: "expense" };
 }
 
