@@ -80,8 +80,8 @@ export function extractPhonePeTransactions(
       .replace(/\d{10,}/g, "") // Long bare numbers (UTR numbers)
       .replace(/transaction\s*id\s*:\s*\w+/gi, "")
       .replace(/utr\s*no\s*:\s*\w+/gi, "")
-      .replace(/credited?\s*(?:to|from)\s+\w+/gi, "")
-      .replace(/debited?\s+from\s+\w+/gi, "")
+      .replace(/credited?\s*(?:to|from)\s+xx\d{2,}/gi, "")
+      .replace(/debited?\s+from\s+xx\d{2,}/gi, "")
       .replace(/debit\s+inr|credit\s+inr/gi, "")
       .replace(/xx\d{4}/gi, "")
       .replace(/No\s*:/gi, "") // Remove 'No :' artifact
@@ -186,8 +186,15 @@ export function extractPhonePeTransactions(
       continue;
     }
 
+    // Preserve explicit message/note lines for incoming payments.
+    if (/^(message|remarks?|note)\s*[:\-]/i.test(line)) {
+      const msg = line.replace(/^(message|remarks?|note)\s*[:\-]?\s*/i, "").trim();
+      if (msg) wip.descLines.push(msg);
+      continue;
+    }
+
     // Any other non-empty line that's not metadata → append to description
-    if (line.length > 1 && !wip.hasAmount) {
+    if (line.length > 1 && (!wip.hasAmount || /^(message|remarks?|note)\b/i.test(line))) {
       wip.descLines.push(line);
     }
   }
@@ -225,7 +232,7 @@ function parsePhonePeDate(dateStr: string): string | null {
   const month = months[monthStr.toLowerCase().slice(0, 3)];
   if (month === undefined || isNaN(day) || isNaN(year)) return null;
 
-  const d = new Date(year, month, day);
+  const d = new Date(Date.UTC(year, month, day));
   if (isNaN(d.getTime())) return null;
 
   return d.toISOString().slice(0, 10);

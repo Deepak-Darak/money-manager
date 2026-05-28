@@ -419,6 +419,12 @@ function parseAmount(val: unknown): number {
   return isNaN(num) ? 0 : Math.abs(num);
 }
 
+function formatYmdUtc(year: number, month: number, day: number): string | null {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
 function parseDate(val: unknown): string {
   if (!val && val !== 0) return new Date().toISOString().slice(0, 10);
   const str = String(val).trim();
@@ -430,15 +436,15 @@ function parseDate(val: unknown): string {
     if (year < 100) year += 2000;
     const day = parseInt(dmy[1]);
     const month = parseInt(dmy[2]);
-    const d = new Date(year, month - 1, day);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
   }
 
   // YYYY-MM-DD
   const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (ymd) {
-    const d = new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]));
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const parsed = formatYmdUtc(parseInt(ymd[1]), parseInt(ymd[2]), parseInt(ymd[3]));
+    if (parsed) return parsed;
   }
 
   // Excel serial date (number between 40000–60000 ≈ year 2009–2064)
@@ -467,15 +473,15 @@ function parseDateOrNull(val: unknown): string | null {
     if (year < 100) year += 2000;
     const day = parseInt(dmy[1]);
     const month = parseInt(dmy[2]);
-    const d = new Date(year, month - 1, day);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const parsed = formatYmdUtc(year, month, day);
+    if (parsed) return parsed;
   }
 
   // YYYY-MM-DD
   const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (ymd) {
-    const d = new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]));
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const parsed = formatYmdUtc(parseInt(ymd[1]), parseInt(ymd[2]), parseInt(ymd[3]));
+    if (parsed) return parsed;
   }
 
   // Excel serial date (number between 40000–60000 ≈ year 2009–2064)
