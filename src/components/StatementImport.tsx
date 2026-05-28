@@ -326,6 +326,31 @@ function patternExtractTransactions(
       } else if ((!amtKind || amtKind.amount === 0) && !wip.hasAmount) {
         // Pure text continuation (multi-line merchant name)
         wip.desc += " " + raw;
+      } else if (wip.hasAmount && amtKind && amtKind.amount > 0) {
+        // Some card statements emit tax/fee lines (e.g. IGST DB @18%) without repeating date.
+        const extraDesc = raw
+          .replace(PDF_AMOUNT_RX, "")
+          .replace(/\b(?:Dr|Cr)\b/g, "")
+          .replace(/\s+[CDMT]\s*$/g, "")
+          .replace(/\s+(?:FP|EN|BT)\s*$/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        const isGstLine = /\b(?:igst|cgst|sgst|gst)\b/i.test(extraDesc);
+        const hasDebitMarker = /\b(?:db|dr|debit)\b/i.test(extraDesc) || /\s+[CDMT]\s*$/i.test(raw);
+        const looksLikeStandaloneTax = extraDesc.length > 1 && extraDesc.length <= 60;
+        if (isGstLine && hasDebitMarker && looksLikeStandaloneTax) {
+          const { categoryId, kind: catKind } = autoCategory(extraDesc, amtKind.kind);
+          txs.push({
+            _id: makeId(),
+            selected: true,
+            date: wip.date,
+            title: extraDesc.slice(0, 100),
+            amount: amtKind.amount,
+            kind: amtKind.kind,
+            categoryId: catKind === amtKind.kind ? categoryId : (amtKind.kind === "income" ? "other-income" : "other-expense"),
+            accountId: defaultAccountId,
+          });
+        }
       }
       // If wip already has amount and line also has an amount → separate info; ignore
     }
