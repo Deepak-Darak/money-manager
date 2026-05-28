@@ -1019,12 +1019,6 @@ textarea:focus {
 .category-chip-del:hover { opacity: 1; }
 
 /* ── Import: transfer from/to selects ───────────── */
-.import-transfer-accounts {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 130px;
-}
 
 .networth-banner {
   padding: 20px;

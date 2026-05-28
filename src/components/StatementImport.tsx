@@ -1060,32 +1060,18 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       onChange={(e) => updateRow(tx._id, { amount: parseFloat(e.target.value) || 0 })}
                     />
                   </td>
-                  <td data-label="Category">
+                  <td data-label={tx.kind === "transfer" ? "From Account" : "Category"}>
                     {tx.kind === "transfer" ? (
-                      <div className="import-transfer-accounts">
-                        <select
-                          className="import-cell-input"
-                          value={tx.fromAccountId ?? ""}
-                          onChange={(e) => updateRow(tx._id, { fromAccountId: e.target.value })}
-                          title="From account"
-                        >
-                          <option value="">From…</option>
-                          {accounts.map((a) => (
-                            <option key={a.id} value={a.id}>{a.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          className="import-cell-input"
-                          value={tx.toAccountId ?? ""}
-                          onChange={(e) => updateRow(tx._id, { toAccountId: e.target.value })}
-                          title="To account"
-                        >
-                          <option value="">To…</option>
-                          {accounts.map((a) => (
-                            <option key={a.id} value={a.id}>{a.name}</option>
-                          ))}
-                        </select>
-                      </div>
+                      <select
+                        className="import-cell-input"
+                        value={tx.fromAccountId ?? ""}
+                        onChange={(e) => updateRow(tx._id, { fromAccountId: e.target.value })}
+                      >
+                        <option value="">— From account —</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
                     ) : (
                       <select
                         className="import-cell-input"
@@ -1098,8 +1084,19 @@ export default function StatementImport({ accounts, categories, onImport, onClos
                       </select>
                     )}
                   </td>
-                  <td data-label="Account">
-                    {tx.kind !== "transfer" && (
+                  <td data-label={tx.kind === "transfer" ? "To Account" : "Account"}>
+                    {tx.kind === "transfer" ? (
+                      <select
+                        className="import-cell-input"
+                        value={tx.toAccountId ?? ""}
+                        onChange={(e) => updateRow(tx._id, { toAccountId: e.target.value })}
+                      >
+                        <option value="">— To account —</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    ) : (
                       <select
                         className="import-cell-input"
                         value={tx.accountId}
