@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SplitExpense, SplitGroup, SplitShare } from "../types/finance";
+import type { SplitExpense, SplitGroup } from "../types/finance";
 import type { Transaction } from "../types/finance";
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
