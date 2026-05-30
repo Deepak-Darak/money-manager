@@ -478,20 +478,28 @@ function handleSplitsRequest_(action, body) {
 
   var verification = verifyFirebaseIdToken_(firebaseIdToken);
   if (!verification.ok) {
-    return jsonResponse({ ok: false, message: verification.message || "Invalid token" });
+    return jsonResponse({
+      ok: false,
+      message: verification.message || "Invalid token",
+    });
   }
 
   var userEmail = normalizeEmail_(verification.email);
 
   if (isRateLimited_(userEmail)) {
-    return jsonResponse({ ok: false, message: "Too many requests. Try again in a minute." });
+    return jsonResponse({
+      ok: false,
+      message: "Too many requests. Try again in a minute.",
+    });
   }
 
-  if (action === "splitsCreateGroup")  return splitsCreateGroup_(body, userEmail);
-  if (action === "splitsGetGroups")    return splitsGetGroups_(userEmail);
-  if (action === "splitsAddExpense")   return splitsAddExpense_(body, userEmail);
-  if (action === "splitsGetExpenses")  return splitsGetExpenses_(body, userEmail);
-  if (action === "splitsSettle")       return splitsSettle_(body, userEmail);
+  if (action === "splitsCreateGroup")
+    return splitsCreateGroup_(body, userEmail);
+  if (action === "splitsGetGroups") return splitsGetGroups_(userEmail);
+  if (action === "splitsAddExpense") return splitsAddExpense_(body, userEmail);
+  if (action === "splitsGetExpenses")
+    return splitsGetExpenses_(body, userEmail);
+  if (action === "splitsSettle") return splitsSettle_(body, userEmail);
 
   return jsonResponse({ ok: false, message: "Unknown splits action" });
 }
@@ -510,8 +518,12 @@ function splitsCreateGroup_(body, userEmail) {
   var name = String(body.name || "").trim();
   var rawMembers = body.memberEmails || [];
   var memberEmails = rawMembers
-    .map(function(e) { return normalizeEmail_(e); })
-    .filter(function(e) { return e; });
+    .map(function (e) {
+      return normalizeEmail_(e);
+    })
+    .filter(function (e) {
+      return e;
+    });
 
   if (!name) {
     return jsonResponse({ ok: false, message: "Group name is required" });
@@ -522,21 +534,40 @@ function splitsCreateGroup_(body, userEmail) {
   }
 
   if (memberEmails.length < 2) {
-    return jsonResponse({ ok: false, message: "Group must have at least 2 members" });
+    return jsonResponse({
+      ok: false,
+      message: "Group must have at least 2 members",
+    });
   }
 
-  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET,
-    ["group_id", "name", "members_json", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET, [
+    "group_id",
+    "name",
+    "members_json",
+    "created_by",
+    "created_at",
+  ]);
   var groupId = Utilities.getUuid();
   var now = new Date().toISOString();
 
-  sheet.appendRow([groupId, name, JSON.stringify(memberEmails), userEmail, now]);
+  sheet.appendRow([
+    groupId,
+    name,
+    JSON.stringify(memberEmails),
+    userEmail,
+    now,
+  ]);
   return jsonResponse({ ok: true, groupId: groupId });
 }
 
 function splitsGetGroups_(userEmail) {
-  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET,
-    ["group_id", "name", "members_json", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET, [
+    "group_id",
+    "name",
+    "members_json",
+    "created_by",
+    "created_at",
+  ]);
   var values = sheet.getDataRange().getValues();
   var groups = [];
 
@@ -546,7 +577,13 @@ function splitsGetGroups_(userEmail) {
     try {
       var members = JSON.parse(row[2] || "[]");
       if (members.indexOf(userEmail) !== -1) {
-        groups.push({ id: row[0], name: row[1], members: members, createdBy: row[3], createdAt: row[4] });
+        groups.push({
+          id: row[0],
+          name: row[1],
+          members: members,
+          createdBy: row[3],
+          createdAt: row[4],
+        });
       }
     } catch (e) {}
   }
@@ -563,7 +600,10 @@ function splitsAddExpense_(body, userEmail) {
   var linkedTransactionId = String(body.linkedTransactionId || "");
 
   if (!groupId || !description || !totalAmount) {
-    return jsonResponse({ ok: false, message: "groupId, description, and totalAmount are required" });
+    return jsonResponse({
+      ok: false,
+      message: "groupId, description, and totalAmount are required",
+    });
   }
 
   var groupMembers = splitsGetGroupMembers_(groupId);
@@ -574,18 +614,39 @@ function splitsAddExpense_(body, userEmail) {
     return jsonResponse({ ok: false, message: "Not a member of this group" });
   }
 
-  var shares = sharesInput.map(function(s) {
-    return { email: normalizeEmail_(s.email), amount: Number(s.amount), settled: false };
+  var shares = sharesInput.map(function (s) {
+    return {
+      email: normalizeEmail_(s.email),
+      amount: Number(s.amount),
+      settled: false,
+    };
   });
 
-  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET,
-    ["expense_id", "group_id", "description", "total_amount", "paid_by",
-     "shares_json", "linked_transaction_id", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET, [
+    "expense_id",
+    "group_id",
+    "description",
+    "total_amount",
+    "paid_by",
+    "shares_json",
+    "linked_transaction_id",
+    "created_by",
+    "created_at",
+  ]);
   var expenseId = Utilities.getUuid();
   var now = new Date().toISOString();
 
-  sheet.appendRow([expenseId, groupId, description, totalAmount, paidBy,
-    JSON.stringify(shares), linkedTransactionId, userEmail, now]);
+  sheet.appendRow([
+    expenseId,
+    groupId,
+    description,
+    totalAmount,
+    paidBy,
+    JSON.stringify(shares),
+    linkedTransactionId,
+    userEmail,
+    now,
+  ]);
 
   return jsonResponse({ ok: true, expenseId: expenseId });
 }
@@ -601,9 +662,17 @@ function splitsGetExpenses_(body, userEmail) {
     return jsonResponse({ ok: false, message: "Not a member of this group" });
   }
 
-  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET,
-    ["expense_id", "group_id", "description", "total_amount", "paid_by",
-     "shares_json", "linked_transaction_id", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET, [
+    "expense_id",
+    "group_id",
+    "description",
+    "total_amount",
+    "paid_by",
+    "shares_json",
+    "linked_transaction_id",
+    "created_by",
+    "created_at",
+  ]);
   var values = sheet.getDataRange().getValues();
   var expenses = [];
 
@@ -612,10 +681,15 @@ function splitsGetExpenses_(body, userEmail) {
     if (!row[0] || row[1] !== groupId) continue;
     try {
       expenses.push({
-        id: row[0], groupId: row[1], description: row[2],
-        totalAmount: Number(row[3]), paidBy: row[4],
+        id: row[0],
+        groupId: row[1],
+        description: row[2],
+        totalAmount: Number(row[3]),
+        paidBy: row[4],
         shares: JSON.parse(row[5] || "[]"),
-        linkedTransactionId: row[6], createdBy: row[7], createdAt: row[8]
+        linkedTransactionId: row[6],
+        createdBy: row[7],
+        createdAt: row[8],
       });
     } catch (e) {}
   }
@@ -631,9 +705,17 @@ function splitsSettle_(body, userEmail) {
     return jsonResponse({ ok: false, message: "expenseId is required" });
   }
 
-  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET,
-    ["expense_id", "group_id", "description", "total_amount", "paid_by",
-     "shares_json", "linked_transaction_id", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET, [
+    "expense_id",
+    "group_id",
+    "description",
+    "total_amount",
+    "paid_by",
+    "shares_json",
+    "linked_transaction_id",
+    "created_by",
+    "created_at",
+  ]);
   var values = sheet.getDataRange().getValues();
 
   for (var i = 1; i < values.length; i++) {
@@ -647,13 +729,18 @@ function splitsSettle_(body, userEmail) {
 
     try {
       var shares = JSON.parse(values[i][5] || "[]");
-      var updated = shares.map(function(s) {
-        return s.email === settleEmail ? Object.assign({}, s, { settled: true }) : s;
+      var updated = shares.map(function (s) {
+        return s.email === settleEmail
+          ? Object.assign({}, s, { settled: true })
+          : s;
       });
       sheet.getRange(i + 1, 6).setValue(JSON.stringify(updated));
       return jsonResponse({ ok: true });
     } catch (e) {
-      return jsonResponse({ ok: false, message: "Failed to update settlement" });
+      return jsonResponse({
+        ok: false,
+        message: "Failed to update settlement",
+      });
     }
   }
 
@@ -661,12 +748,21 @@ function splitsSettle_(body, userEmail) {
 }
 
 function splitsGetGroupMembers_(groupId) {
-  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET,
-    ["group_id", "name", "members_json", "created_by", "created_at"]);
+  var sheet = getOrCreateNamedSheet_(SPLITS_GROUPS_SHEET, [
+    "group_id",
+    "name",
+    "members_json",
+    "created_by",
+    "created_at",
+  ]);
   var values = sheet.getDataRange().getValues();
   for (var i = 1; i < values.length; i++) {
     if (values[i][0] === groupId) {
-      try { return JSON.parse(values[i][2] || "[]"); } catch (e) { return null; }
+      try {
+        return JSON.parse(values[i][2] || "[]");
+      } catch (e) {
+        return null;
+      }
     }
   }
   return null;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onIdTokenChanged, signInWithPopup, signInWithRedirect, signOut as firebaseSignOut } from "firebase/auth";
 import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
@@ -12,7 +12,7 @@ import { defaultAccountTypes } from "./data/accountGroups";
 import { categories as builtinCategories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { auth, firebaseAuthConfigured, googleProvider } from "./lib/firebase";
-import type { Account, AccountType, AppDataSnapshot, Category, Transaction } from "./types/finance";
+import type { Account, AccountType, AppDataSnapshot, Category, SplitGroup, Transaction } from "./types/finance";
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
 
@@ -165,7 +165,119 @@ function GoogleSignInButton({ onError }: GoogleSignInButtonProps) {
   );
 }
 
+// ── Post-transfer split modal ──────────────────────────────────────────────
 
+interface PostTransferSplitModalProps {
+  transaction: Transaction;
+  group: SplitGroup;
+  currentUser: string;
+  authToken: string;
+  onDone: () => void;
+}
+
+function PostTransferSplitModal({ transaction, group, currentUser, authToken, onDone }: PostTransferSplitModalProps) {
+  const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
+  const [customShares, setCustomShares] = useState<Record<string, string>>({});
+  const [paidBy, setPaidBy] = useState(currentUser);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const perPerson = group.members.length > 0 ? transaction.amount / group.members.length : 0;
+
+  function getShares() {
+    if (splitMode === "equal") {
+      return group.members.map((m) => ({ email: m, amount: perPerson }));
+    }
+    return group.members.map((m) => ({ email: m, amount: parseFloat(customShares[m] || "0") || 0 }));
+  }
+
+  async function handleConfirm() {
+    const shares = getShares();
+    if (splitMode === "custom") {
+      const total = shares.reduce((s, x) => s + x.amount, 0);
+      if (Math.abs(total - transaction.amount) > 0.5) {
+        setError(`Shares total ₹${total.toFixed(2)} but transaction is ₹${transaction.amount.toFixed(2)}`);
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "splitsAddExpense",
+          firebaseIdToken: authToken,
+          authProvider: "google-firebase",
+          groupId: group.id,
+          description: transaction.title,
+          totalAmount: transaction.amount,
+          paidBy,
+          shares,
+          linkedTransactionId: transaction.id,
+        }),
+      });
+      onDone();
+    } catch {
+      setError("Failed to create split expense");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="splits-modal-overlay">
+      <div className="splits-modal panel">
+        <div className="splits-modal-header">
+          <h3>Split with {group.name}?</h3>
+          <button className="icon-btn" onClick={onDone} aria-label="Skip">✕</button>
+        </div>
+        <div className="splits-modal-body">
+          <p className="splits-expense-meta">
+            Transfer of <strong>₹{transaction.amount.toLocaleString("en-IN")}</strong> — "{transaction.title}"
+          </p>
+
+          <label className="field-label">
+            Paid by
+            <select className="field-input" value={paidBy} onChange={(e) => setPaidBy(e.target.value)}>
+              {group.members.map((m) => (
+                <option key={m} value={m}>{m === currentUser ? `${m.split("@")[0]} (you)` : m.split("@")[0]}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="splits-split-toggle">
+            <button type="button" className={`splits-toggle-btn${splitMode === "equal" ? " active" : ""}`} onClick={() => setSplitMode("equal")}>Equal</button>
+            <button type="button" className={`splits-toggle-btn${splitMode === "custom" ? " active" : ""}`} onClick={() => setSplitMode("custom")}>Custom</button>
+          </div>
+
+          <div className="splits-shares-list">
+            {group.members.map((m) => (
+              <div key={m} className="splits-share-input-row">
+                <span className="splits-share-label">{m === currentUser ? `${m.split("@")[0]} (you)` : m.split("@")[0]}</span>
+                {splitMode === "equal" ? (
+                  <span className="splits-share-amount">₹{perPerson.toFixed(2)}</span>
+                ) : (
+                  <input className="field-input splits-share-field" type="number" min="0" step="0.01"
+                    value={customShares[m] ?? ""} placeholder="0.00"
+                    onChange={(e) => setCustomShares((prev) => ({ ...prev, [m]: e.target.value }))} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {error && <p className="splits-error">{error}</p>}
+
+          <div className="splits-modal-actions">
+            <button type="button" className="ghost-btn" onClick={onDone}>Skip</button>
+            <button type="button" className="primary-btn" disabled={saving} onClick={handleConfirm}>
+              {saving ? "Adding…" : "Add Split Expense"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>("mm-transactions", []);
@@ -192,6 +304,47 @@ export default function App() {
   const [showInstallHint, setShowInstallHint] = useState(false);
   const [showLaunchSplash, setShowLaunchSplash] = useState(false);
   const skipNextAutoPush = useRef(false);
+
+  // ── Splits state ────────────────────────────────────────────────────────
+  const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
+  const [pendingSplitExpense, setPendingSplitExpense] = useState<{
+    transaction: Transaction;
+    group: SplitGroup;
+  } | null>(null);
+
+  const syncSplitGroupAccounts = useCallback((groups: SplitGroup[], netPerGroup: Record<string, number>) => {
+    setSplitGroups(groups);
+    setAccounts((current) => {
+      let next = [...current];
+      for (const group of groups) {
+        const net = netPerGroup[group.id] ?? 0;
+        const existingIdx = next.findIndex((a) => a.splitGroupId === group.id);
+        if (existingIdx >= 0) {
+          next = next.map((a, i) =>
+            i === existingIdx
+              ? { ...a, balance: net, type: net < 0 ? "liability" : "asset", name: group.name }
+              : a
+          );
+        } else {
+          next = [
+            ...next,
+            {
+              id: "split-" + group.id,
+              name: group.name,
+              group: "other",
+              type: (net < 0 ? "liability" : "asset") as "asset" | "liability",
+              balance: net,
+              splitGroupId: group.id,
+              createdAt: group.createdAt,
+            },
+          ];
+        }
+      }
+      // Remove accounts for groups that were deleted
+      const groupIds = new Set(groups.map((g) => g.id));
+      return next.filter((a) => !a.splitGroupId || groupIds.has(a.splitGroupId));
+    });
+  }, []);
 
   const totalAssets = accounts.filter((a) => a.type === "asset").reduce((sum, a) => sum + a.balance, 0);
   const rawLiabilityBalance = accounts
@@ -454,6 +607,17 @@ export default function App() {
 
     setAccounts((current) => applyTransactionEffect(current, nextTransaction, 1));
     setFocusDate(payload.date);
+
+    // If this is a transfer to a split group account, prompt to create a split expense
+    if (payload.kind === "transfer" && payload.toAccountId) {
+      const targetAccount = accounts.find((a) => a.id === payload.toAccountId);
+      if (targetAccount?.splitGroupId) {
+        const group = splitGroups.find((g) => g.id === targetAccount.splitGroupId);
+        if (group) {
+          setPendingSplitExpense({ transaction: nextTransaction, group });
+        }
+      }
+    }
   }
 
   function updateTransaction(payload: NewTransactionInput) {
@@ -695,6 +859,15 @@ export default function App() {
           onClose={() => setShowImport(false)}
         />
       )}
+      {pendingSplitExpense && (
+        <PostTransferSplitModal
+          transaction={pendingSplitExpense.transaction}
+          group={pendingSplitExpense.group}
+          currentUser={userEmail}
+          authToken={authToken}
+          onDone={() => setPendingSplitExpense(null)}
+        />
+      )}
       <div className="app-shell">
         <div className="background-layers" aria-hidden="true" />
 
@@ -874,6 +1047,7 @@ export default function App() {
             userEmail={userEmail}
             authToken={authToken}
             transactions={transactions}
+            onSyncAccounts={syncSplitGroupAccounts}
           />
         )}
       </div>

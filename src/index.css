@@ -2360,3 +2360,67 @@ textarea:focus {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ── Splits: settle-up + group net badge ────────────────────────────────── */
+
+.splits-settle-up {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.splits-settle-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+
+.splits-settle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.splits-settle-row strong {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-amber);
+}
+
+.splits-settle-arrow {
+  color: var(--ink-3);
+}
+
+.splits-settle-you {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.splits-all-settled {
+  text-align: center;
+  color: var(--accent);
+  font-size: 0.85rem;
+  padding: 10px;
+}
+
+.splits-group-net {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.splits-group-net.plus {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--accent);
+}
+
+.splits-group-net.minus {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--accent-red);
+}

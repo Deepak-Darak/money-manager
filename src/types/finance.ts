@@ -37,6 +37,7 @@ export interface Account {
   type: "asset" | "liability";
   balance: number;
   note?: string;
+  splitGroupId?: string;
   createdAt: string;
 }
 
