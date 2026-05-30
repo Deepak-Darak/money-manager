@@ -172,6 +172,14 @@ function getPdfErrorDetails(err: unknown): { name: string; code: string; message
  *  - Three-column layout  Debit | Credit | Balance  — drops the last (Balance)
  *  - Dr / Cr suffix on the amount (HDFC CC style: "500.00Cr")
  */
+/**
+ * Extract amount and determine if transaction is income or expense.
+ * Supports multiple marking systems used by different banks:
+ *  - Cr/Dr suffixes (HDFC, SBI: "500.00Cr", "500.00Dr")
+ *  - +/- signs before/after amount ("+100", "100-", "-100")
+ *  - Separate debit/credit columns (D/C columns)
+ *  - Keywords (cashback, reversal, payment received)
+ */
 function extractAmountAndKind(
   lineText: string,
 ): { amount: number; kind: "income" | "expense" } | null {
@@ -209,34 +217,30 @@ function extractAmountAndKind(
   const amount = match.value;
   const idxEnd = match.index + match.token.length;
 
-  // PRIMARY SIGNAL: Look for "Cr" or "Dr" markers (most reliable for bank statements)
-  // Many bank formats (HDFC, SBI, etc.) use this to explicitly mark transaction type
+  // SIGNAL 1: Cr/Dr markers (many banks: HDFC, SBI, etc.)
   const restOfLine = lineText.slice(idxEnd);
   const hasCrMarker = /\bCr\b|\bCR\b/.test(restOfLine.slice(0, 20));
   const hasDrMarker = /\bDr\b|\bDR\b/.test(restOfLine.slice(0, 20));
   
   if (hasCrMarker) return { amount, kind: "income" };
   if (hasDrMarker) return { amount, kind: "expense" };
-  
-  // If no explicit marker found, use context indicators
-  const near = lineText.slice(Math.max(0, match.index - 8), idxEnd + 30);
+
+  // SIGNAL 2: +/- signs in the amount token (+ = income, - = expense)
   const hasPlus = /(^|\s)\+/.test(match.token);
   const hasMinus = /(^|\s)-/.test(match.token);
   
-  // Income-only keywords (unambiguous)
-  const isPaymentReceived = /\bpayment\s+received\b/i.test(lineText);
-  const isTeleTransfer = /tele\s*transfer\s*credit/i.test(lineText);
-  
-  // Debit/expense only keywords (unambiguous)
-  const isPurchase = /purchase|bought|paid|sent/i.test(near);
-  
   if (hasPlus) return { amount, kind: "income" };
   if (hasMinus) return { amount, kind: "expense" };
-  if (isPaymentReceived) return { amount, kind: "income" };
-  if (isTeleTransfer) return { amount, kind: "income" };
-  if (isPurchase) return { amount, kind: "expense" };
+
+  // SIGNAL 3: Keyword-based detection for cases without explicit markers
+  const isPaymentReceived = /\bpayment\s+received\b/i.test(lineText);
+  const isTeleTransfer = /tele\s*transfer\s*credit|bank\s*transfer|fund\s*transfer/i.test(lineText);
+  const isCashback = /cashback|bonus|reward/i.test(lineText);
+  const isRefund = /refund|reversal|reverse/i.test(lineText) && !/razorpay|upi\s*pay|payment/i.test(lineText);
   
-  // Fallback: EXPENSE (most credit card transactions are purchases/debits)
+  if (isPaymentReceived || isTeleTransfer || isCashback || isRefund) return { amount, kind: "income" };
+
+  // Fallback: EXPENSE (most credit card/UPI transactions are debits)
   return { amount, kind: "expense" };
 }
 

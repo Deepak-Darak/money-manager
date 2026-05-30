@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { onIdTokenChanged, signInWithPopup, signInWithRedirect, signOut as firebaseSignOut } from "firebase/auth";
 import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
 import ExpenseChart from "./components/ExpenseChart";
@@ -9,6 +10,7 @@ import TransactionTimeline from "./components/TransactionTimeline";
 import { defaultAccountTypes } from "./data/accountGroups";
 import { categories as builtinCategories } from "./data/categories";
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import { auth, firebaseAuthConfigured, googleProvider } from "./lib/firebase";
 import type { Account, AccountType, AppDataSnapshot, Category, Transaction } from "./types/finance";
 
 const SYNC_ENDPOINT = import.meta.env.VITE_SYNC_ENDPOINT ?? "";
@@ -119,87 +121,46 @@ function applyTransactionEffect(currentAccounts: Account[], tx: Transaction, dir
   return next;
 }
 
-interface AuthLoginFormProps {
-  syncEndpoint: string;
-  onSuccess: (email: string, sessionToken: string) => void;
+interface GoogleSignInButtonProps {
   onError: (message: string) => void;
 }
 
-function AuthLoginForm({ syncEndpoint, onSuccess, onError }: AuthLoginFormProps) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function GoogleSignInButton({ onError }: GoogleSignInButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail || !password) {
-      onError("Email and password are required.");
-      return;
-    }
-
-    if (!syncEndpoint) {
-      onError("Sync endpoint is not configured.");
+  async function handleGoogleSignIn() {
+    if (!firebaseAuthConfigured || !auth || !googleProvider) {
+      onError("Firebase is not configured. Add VITE_FIREBASE_* env values.");
       return;
     }
 
     setIsLoading(true);
     try {
-      const response = await fetch(syncEndpoint, {
-        method: "POST",
-        body: JSON.stringify({ action: "verify", email: normalizedEmail, password })
-      });
-
-      if (!response.ok) {
-        onError("Authentication failed.");
-        return;
-      }
-
-      const result = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-        email?: string;
-        sessionToken?: string;
-        token?: string;
-      };
-
-      if (!result.ok) {
-        onError(result.message || "Incorrect password.");
-        return;
-      }
-
-      const nextToken = result.sessionToken ?? result.token ?? password;
-      onSuccess(result.email ?? normalizedEmail, nextToken);
+      await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Authentication error.");
+      const message = error instanceof Error ? error.message : "Google sign-in failed.";
+      if (/popup|redirect/i.test(message)) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectError) {
+          onError(redirectError instanceof Error ? redirectError.message : "Google sign-in failed.");
+          return;
+        }
+      }
+
+      onError(message);
     } finally {
       setIsLoading(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="auth-login-form">
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={isLoading}
-        required
-      />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        disabled={isLoading}
-        required
-      />
-      <button type="submit" disabled={isLoading}>
-        {isLoading ? "Signing in..." : "Sign In"}
+    <div className="auth-google-wrap">
+      <button type="button" className="auth-google-btn" onClick={handleGoogleSignIn} disabled={isLoading}>
+        {isLoading ? "Signing in..." : "Continue with Google"}
       </button>
-    </form>
+    </div>
   );
 }
 
@@ -223,7 +184,8 @@ export default function App() {
     normalizeEmail(window.localStorage.getItem("mm-user-email") ?? "")
   );
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem("mm-auth-token") ?? "");
-  const [authStatus, setAuthStatus] = useState("Enter email and password to continue.");
+  const [authStatus, setAuthStatus] = useState("Sign in with Google to continue.");
+  const [authReady, setAuthReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastPulledToken, setLastPulledToken] = useState("");
   const [showInstallHint, setShowInstallHint] = useState(false);
@@ -312,6 +274,35 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!auth) {
+      setAuthReady(true);
+      return;
+    }
+
+    const unsubscribe = onIdTokenChanged(auth, async (user) => {
+      if (!user) {
+        setUserEmail("");
+        setAuthToken("");
+        setLastPulledToken("");
+        setAuthStatus("Sign in with Google to continue.");
+        setAuthReady(true);
+        return;
+      }
+
+      const email = normalizeEmail(user.email ?? user.providerData[0]?.email ?? "");
+      const token = await user.getIdToken();
+      setUserEmail(email);
+      setAuthToken(token);
+      setAuthStatus("Signed in. Loading your data...");
+      setAuthReady(true);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   async function syncRequest(action: "push" | "pull", email: string, token: string) {
     if (!SYNC_ENDPOINT) {
       throw new Error("Cloud sync endpoint is not configured.");
@@ -327,6 +318,8 @@ export default function App() {
         action,
         email,
         password: token,
+        firebaseIdToken: token,
+        authProvider: "google-firebase",
         ...(action === "push" ? { payload: snapshot } : {})
       })
     });
@@ -650,6 +643,22 @@ export default function App() {
     </div>
   ) : null;
 
+  if (!authReady) {
+    return (
+      <>
+        {launchSplash}
+        {installHint}
+        <div className="auth-gate-wrap">
+          <div className="auth-gate-card panel">
+            <p className="eyebrow">Money Manager</p>
+            <h1>Checking sign-in status...</h1>
+            <p className="auth-gate-note">{authStatus}</p>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (!authToken) {
     return (
       <>
@@ -660,17 +669,12 @@ export default function App() {
             <p className="eyebrow">Money Manager</p>
             <h1>Sign in to access your personal dashboard</h1>
             <p className="auth-gate-text">
-              Enter your email and password to access your money manager. Your data will be stored securely in Google Sheets.
+              Use one click Google sign-in to continue. Your data stays on your cloud sync destination.
             </p>
-            <AuthLoginForm
-              syncEndpoint={SYNC_ENDPOINT}
-              onSuccess={(email, token) => {
-                setUserEmail(normalizeEmail(email));
-                setAuthToken(token);
-                setAuthStatus("Signed in. Loading your data...");
-              }}
-              onError={(message) => setAuthStatus(message)}
-            />
+            <GoogleSignInButton onError={(message) => setAuthStatus(message)} />
+            {!firebaseAuthConfigured ? (
+              <p className="auth-gate-note">Missing Firebase env keys. Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, and VITE_FIREBASE_APP_ID.</p>
+            ) : null}
             <p className="auth-gate-note">{authStatus}</p>
           </div>
         </div>
@@ -716,7 +720,15 @@ export default function App() {
           <button
             type="button"
             className="ghost-btn"
-            onClick={() => {
+            onClick={async () => {
+              try {
+                if (auth) {
+                  await firebaseSignOut(auth);
+                }
+              } catch {
+                // State reset below still clears local session if sign-out RPC fails.
+              }
+
               setUserEmail("");
               setAuthToken("");
               setLastPulledToken("");

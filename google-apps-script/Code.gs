@@ -4,6 +4,7 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const NONCE_TTL_SECONDS = 10 * 60;
 const RATE_LIMIT_PER_MIN = 30;
 const RATE_LIMIT_PER_10_MIN = 120;
+const FIREBASE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 
 function doGet() {
   return jsonResponse({ ok: true, message: "Money Manager Sync API is running" });
@@ -59,6 +60,10 @@ function handleVerify_(body) {
 }
 
 function handleSignedDataRequest_(action, body) {
+  if (isFirebaseAuthRequest_(body)) {
+    return handleFirebaseDataRequest_(action, body);
+  }
+
   const authToken = String(body.authToken || "");
   const timestamp = Number(body.timestamp);
   const nonce = String(body.nonce || "");
@@ -106,6 +111,117 @@ function handleSignedDataRequest_(action, body) {
 
   const data = getUserData(session.email);
   return jsonResponse({ ok: true, data: data, email: session.email });
+}
+
+function isFirebaseAuthRequest_(body) {
+  const authProvider = String(body.authProvider || "").trim().toLowerCase();
+  const firebaseIdToken = String(body.firebaseIdToken || body.password || "").trim();
+  return authProvider === "google-firebase" || firebaseIdToken.length > 0;
+}
+
+function handleFirebaseDataRequest_(action, body) {
+  const firebaseIdToken = String(body.firebaseIdToken || body.password || "").trim();
+  const payload = body.payload;
+
+  if (!firebaseIdToken) {
+    return jsonResponse({ ok: false, message: "Missing firebaseIdToken" });
+  }
+
+  if (action === "push" && payload == null) {
+    return jsonResponse({ ok: false, message: "Missing payload" });
+  }
+
+  const verification = verifyFirebaseIdToken_(firebaseIdToken);
+  if (!verification.ok) {
+    return jsonResponse({ ok: false, message: verification.message || "Invalid Firebase token" });
+  }
+
+  const tokenEmail = normalizeEmail_(verification.email);
+  if (!tokenEmail) {
+    return jsonResponse({ ok: false, message: "Email missing in Firebase token" });
+  }
+
+  const requestedEmail = normalizeEmail_(body.email);
+  if (requestedEmail && requestedEmail !== tokenEmail) {
+    return jsonResponse({ ok: false, message: "Email mismatch" });
+  }
+
+  if (!isEmailAllowed_(tokenEmail)) {
+    return jsonResponse({ ok: false, message: "Email is not allowed" });
+  }
+
+  if (isRateLimited_(tokenEmail)) {
+    return jsonResponse({ ok: false, message: "Too many requests. Try again in a minute." });
+  }
+
+  if (action === "push") {
+    upsertUserData(tokenEmail, payload);
+    return jsonResponse({ ok: true, message: "Saved", email: tokenEmail });
+  }
+
+  const data = getUserData(tokenEmail);
+  return jsonResponse({ ok: true, data: data, email: tokenEmail });
+}
+
+function verifyFirebaseIdToken_(idToken) {
+  try {
+    const response = UrlFetchApp.fetch(
+      FIREBASE_TOKENINFO_URL + "?id_token=" + encodeURIComponent(idToken),
+      {
+        method: "get",
+        muteHttpExceptions: true
+      }
+    );
+
+    if (response.getResponseCode() !== 200) {
+      return { ok: false, message: "Firebase token verification failed" };
+    }
+
+    const tokenInfo = JSON.parse(response.getContentText() || "{}");
+    const email = normalizeEmail_(tokenInfo.email);
+    const aud = String(tokenInfo.aud || "").trim();
+    const iss = String(tokenInfo.iss || "").trim();
+    const emailVerified = String(tokenInfo.email_verified || "").toLowerCase();
+    const expSeconds = Number(tokenInfo.exp || 0);
+
+    if (!email) {
+      return { ok: false, message: "Firebase token has no email" };
+    }
+
+    if (emailVerified === "false") {
+      return { ok: false, message: "Email is not verified" };
+    }
+
+    if (!expSeconds || Date.now() >= expSeconds * 1000) {
+      return { ok: false, message: "Firebase token expired" };
+    }
+
+    const configuredProjectId = String(
+      PropertiesService.getScriptProperties().getProperty("FIREBASE_PROJECT_ID") || ""
+    ).trim();
+
+    if (configuredProjectId) {
+      if (aud !== configuredProjectId) {
+        return { ok: false, message: "Token audience mismatch" };
+      }
+
+      const expectedIssuer = "https://securetoken.google.com/" + configuredProjectId;
+      if (iss !== expectedIssuer) {
+        return { ok: false, message: "Token issuer mismatch" };
+      }
+    } else {
+      if (!aud || iss !== "https://securetoken.google.com/" + aud) {
+        return { ok: false, message: "Token issuer or audience is invalid" };
+      }
+    }
+
+    return { ok: true, email: email };
+  } catch (error) {
+    return {
+      ok: false,
+      message: "Unable to verify Firebase token: " + String(error)
+    };
+  }
 }
 
 function verifyPassword_(password) {

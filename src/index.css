@@ -95,50 +95,29 @@ p {
   font-size: 0.84rem;
 }
 
-.auth-login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.auth-google-wrap {
   margin-bottom: 12px;
 }
 
-.auth-login-form input {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  color: var(--ink);
-  font-family: inherit;
-  font-size: 0.95rem;
-}
-
-.auth-login-form input::placeholder {
-  color: var(--ink-3);
-}
-
-.auth-login-form input:focus {
-  outline: none;
-  border-color: var(--accent-blue);
-  background: var(--surface-3);
-}
-
-.auth-login-form button {
+.auth-google-btn {
+  width: 100%;
   padding: 10px 14px;
-  border: 1px solid var(--accent-blue);
+  border: 1px solid #ffffff;
   border-radius: var(--radius);
-  background: var(--accent-blue);
-  color: var(--bg);
+  background: #ffffff;
+  color: #111827;
   font-family: inherit;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.auth-login-form button:hover:not(:disabled) {
-  opacity: 0.85;
+.auth-google-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(255, 255, 255, 0.14);
 }
 
-.auth-login-form button:disabled {
+.auth-google-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
