@@ -1,4 +1,4 @@
-export type Tab = "dashboard" | "transactions" | "accounts" | "charts";
+export type Tab = "dashboard" | "transactions" | "accounts" | "charts" | "splits";
 
 interface NavigationProps {
   activeTab: Tab;
@@ -10,6 +10,7 @@ const TABS: { id: Tab; label: string; symbol: string }[] = [
   { id: "transactions", label: "Transactions",  symbol: "≡" },
   { id: "accounts",     label: "Accounts",      symbol: "◉" },
   { id: "charts",       label: "Charts",        symbol: "◑" },
+  { id: "splits",       label: "Splits",        symbol: "⇌" },
 ];
 
 export default function Navigation({ activeTab, onChange }: NavigationProps) {

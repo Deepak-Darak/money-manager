@@ -47,3 +47,29 @@ export interface AppDataSnapshot {
   accountTypes: AccountType[];
   customCategories?: Category[];
 }
+
+export interface SplitShare {
+  email: string;
+  amount: number;
+  settled: boolean;
+}
+
+export interface SplitGroup {
+  id: string;
+  name: string;
+  members: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface SplitExpense {
+  id: string;
+  groupId: string;
+  description: string;
+  totalAmount: number;
+  paidBy: string;
+  shares: SplitShare[];
+  linkedTransactionId?: string;
+  createdBy: string;
+  createdAt: string;
+}

@@ -4,6 +4,7 @@ import AccountsPage from "./components/AccountsPage";
 import ChartsDashboard from "./components/ChartsDashboard";
 import ExpenseChart from "./components/ExpenseChart";
 import Navigation, { type Tab } from "./components/Navigation";
+import SplitsPage from "./components/SplitsPage";
 import StatementImport, { type ImportedTx } from "./components/StatementImport";
 import TransactionForm, { type NewTransactionInput } from "./components/TransactionForm";
 import TransactionTimeline from "./components/TransactionTimeline";
@@ -865,6 +866,15 @@ export default function App() {
               <ChartsDashboard transactions={transactions} categories={allCategories} />
             </div>
           </div>
+        )}
+
+        {/* ── Splits ────────────────────────────────── */}
+        {activeTab === "splits" && (
+          <SplitsPage
+            userEmail={userEmail}
+            authToken={authToken}
+            transactions={transactions}
+          />
         )}
       </div>
     </>
