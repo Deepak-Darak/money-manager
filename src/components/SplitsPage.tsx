@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SplitExpense, SplitGroup } from "../types/finance";
 import type { Transaction } from "../types/finance";
 
@@ -376,10 +376,12 @@ interface ExpenseCardProps {
   expense: SplitExpense;
   currentUser: string;
   onSettle: (expenseId: string, settleEmail: string) => Promise<void>;
+  onDelete: (expenseId: string) => Promise<void>;
 }
 
-function ExpenseCard({ expense, currentUser, onSettle }: ExpenseCardProps) {
+function ExpenseCard({ expense, currentUser, onSettle, onDelete }: ExpenseCardProps) {
   const [settling, setSettling] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function handleSettle(email: string) {
     setSettling(email);
@@ -390,8 +392,19 @@ function ExpenseCard({ expense, currentUser, onSettle }: ExpenseCardProps) {
     }
   }
 
+  async function handleDelete() {
+    if (!confirm(`Delete "${expense.description}"?`)) return;
+    setDeleting(true);
+    try {
+      await onDelete(expense.id);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const myShare = expense.shares.find((s) => s.email === currentUser);
   const iAmPayer = expense.paidBy === currentUser;
+  const canDelete = expense.createdBy === currentUser || iAmPayer;
 
   return (
     <div className="splits-expense-card panel">
@@ -404,11 +417,24 @@ function ExpenseCard({ expense, currentUser, onSettle }: ExpenseCardProps) {
             {" · "}{new Date(expense.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
           </p>
         </div>
-        {myShare && !iAmPayer && (
-          <div className={`splits-expense-badge${myShare.settled ? " settled" : " owed"}`}>
-            {myShare.settled ? "Settled" : `You owe ${fmtAmount(myShare.amount)}`}
-          </div>
-        )}
+        <div className="splits-expense-header-actions">
+          {myShare && !iAmPayer && (
+            <div className={`splits-expense-badge${myShare.settled ? " settled" : " owed"}`}>
+              {myShare.settled ? "Settled" : `You owe ${fmtAmount(myShare.amount)}`}
+            </div>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="splits-delete-btn"
+              disabled={deleting}
+              onClick={handleDelete}
+              aria-label="Delete expense"
+            >
+              {deleting ? "…" : "✕"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="splits-shares-breakdown">
@@ -454,6 +480,22 @@ interface SplitsPageProps {
 }
 
 export default function SplitsPage({ userEmail, authToken, transactions, onSyncAccounts }: SplitsPageProps) {
+  // Early guard: if no sync endpoint is configured, show a message.
+  // SYNC_ENDPOINT is a module-level constant, so this is stable across renders.
+  if (!SYNC_ENDPOINT) {
+    return (
+      <div className="tab-content splits-page">
+        <div className="splits-list-header panel">
+          <h2>Splits</h2>
+        </div>
+        <div className="panel splits-empty">
+          <p>Cloud sync endpoint is not configured.</p>
+          <p className="splits-error">Set the <strong>VITE_SYNC_ENDPOINT</strong> environment variable to enable splits.</p>
+        </div>
+      </div>
+    );
+  }
+
   const [groups, setGroups] = useState<SplitGroup[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<SplitGroup | null>(null);
   const [expenses, setExpenses] = useState<SplitExpense[]>([]);
@@ -463,6 +505,10 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
   const [error, setError] = useState("");
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
+
+  // Stable ref for groups so fetchExpenses can read latest groups without being a dependency
+  const groupsRef = useRef<SplitGroup[]>([]);
+  groupsRef.current = groups;
 
   const fetchGroups = useCallback(async () => {
     setLoadingGroups(true);
@@ -489,6 +535,7 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
         setGroupNetBalances(netMap);
         onSyncAccounts(loaded, netMap);
       } else {
+        setGroupNetBalances({});
         onSyncAccounts([], {});
       }
     } catch (err) {
@@ -505,15 +552,21 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
       const result = await splitsApi("splitsGetExpenses", authToken, { groupId });
       const loaded = (result.expenses as SplitExpense[]) ?? [];
       setExpenses(loaded);
-      // Update net balance for this group so accounts stay in sync
+      // Update net balance for this group and sync to parent accounts
       const allBal = computeGroupWideBalances(loaded);
-      setGroupNetBalances((prev) => ({ ...prev, [groupId]: allBal[userEmail] ?? 0 }));
+      const updatedNet = allBal[userEmail] ?? 0;
+      setGroupNetBalances((prev) => {
+        const next = { ...prev, [groupId]: updatedNet };
+        // Sync accounts with latest groups and updated balances
+        onSyncAccounts(groupsRef.current, next);
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load expenses");
     } finally {
       setLoadingExpenses(false);
     }
-  }, [authToken, userEmail]);
+  }, [authToken, userEmail, onSyncAccounts]);
 
   useEffect(() => {
     void fetchGroups();
@@ -522,17 +575,6 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
   useEffect(() => {
     if (selectedGroup) void fetchExpenses(selectedGroup.id);
   }, [selectedGroup, fetchExpenses]);
-
-  // Keep groups accessible in stable ref so balance-change effect doesn't need it as dep
-  const groupsRef = useRef<SplitGroup[]>([]);
-  useEffect(() => { groupsRef.current = groups; }, [groups]);
-
-  // Re-sync accounts whenever per-group balances update (e.g. after settle/add expense)
-  useEffect(() => {
-    if (groupsRef.current.length > 0) {
-      onSyncAccounts(groupsRef.current, groupNetBalances);
-    }
-  }, [groupNetBalances, onSyncAccounts]);
 
   async function handleCreateGroup(name: string, memberEmails: string[]) {
     await splitsApi("splitsCreateGroup", authToken, { name, memberEmails });
@@ -558,7 +600,19 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
     if (selectedGroup) await fetchExpenses(selectedGroup.id);
   }
 
+  async function handleDeleteExpense(expenseId: string) {
+    try {
+      await splitsApi("splitsDeleteExpense", authToken, { expenseId });
+      if (selectedGroup) await fetchExpenses(selectedGroup.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete expense");
+    }
+  }
+
   const balances = selectedGroup ? computeBalances(expenses, userEmail) : [];
+
+  // Memoize reversed expense list to avoid re-creating on every render
+  const sortedExpenses = useMemo(() => [...expenses].reverse(), [expenses]);
 
   // ── Group detail view ──────────────────────────────────────────────────
   if (selectedGroup) {
@@ -590,7 +644,17 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
               {selectedGroup.members.map((m) => m === userEmail ? "you" : shortEmail(m)).join(", ")}
             </p>
           </div>
-          <button className="primary-btn" onClick={() => setShowAddExpense(true)}>+ Add</button>
+          <div className="splits-detail-actions">
+            <button
+              className="ghost-btn splits-refresh-btn"
+              onClick={() => { if (selectedGroup) void fetchExpenses(selectedGroup.id); }}
+              disabled={loadingExpenses}
+              aria-label="Refresh expenses"
+            >
+              {loadingExpenses ? "…" : "↻"}
+            </button>
+            <button className="primary-btn" onClick={() => setShowAddExpense(true)}>+ Add</button>
+          </div>
         </div>
 
         {(totalOwed > 0 || totalOwe > 0) && (
@@ -639,12 +703,13 @@ export default function SplitsPage({ userEmail, authToken, transactions, onSyncA
           </div>
         ) : (
           <div className="splits-expense-list">
-            {[...expenses].reverse().map((exp) => (
+            {sortedExpenses.map((exp) => (
               <ExpenseCard
                 key={exp.id}
                 expense={exp}
                 currentUser={userEmail}
                 onSettle={handleSettle}
+                onDelete={handleDeleteExpense}
               />
             ))}
           </div>

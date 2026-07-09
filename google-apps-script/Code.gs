@@ -500,6 +500,8 @@ function handleSplitsRequest_(action, body) {
   if (action === "splitsGetExpenses")
     return splitsGetExpenses_(body, userEmail);
   if (action === "splitsSettle") return splitsSettle_(body, userEmail);
+  if (action === "splitsDeleteExpense")
+    return splitsDeleteExpense_(body, userEmail);
 
   return jsonResponse({ ok: false, message: "Unknown splits action" });
 }
@@ -722,9 +724,19 @@ function splitsSettle_(body, userEmail) {
     if (values[i][0] !== expenseId) continue;
 
     var groupId = values[i][1];
+    var paidBy = normalizeEmail_(values[i][4]);
     var groupMembers = splitsGetGroupMembers_(groupId);
     if (!groupMembers || groupMembers.indexOf(userEmail) === -1) {
       return jsonResponse({ ok: false, message: "Not authorized" });
+    }
+
+    // Authorization: only the payer can mark others' shares settled,
+    // and a person can only mark their own share settled
+    if (settleEmail !== userEmail && paidBy !== userEmail) {
+      return jsonResponse({
+        ok: false,
+        message: "Only the payer can mark others as settled",
+      });
     }
 
     try {
@@ -735,7 +747,7 @@ function splitsSettle_(body, userEmail) {
           : s;
       });
       sheet.getRange(i + 1, 6).setValue(JSON.stringify(updated));
-      return jsonResponse({ ok: true });
+      return jsonResponse({ ok: true, groupId: groupId });
     } catch (e) {
       return jsonResponse({
         ok: false,
@@ -766,4 +778,51 @@ function splitsGetGroupMembers_(groupId) {
     }
   }
   return null;
+}
+
+function splitsDeleteExpense_(body, userEmail) {
+  var expenseId = String(body.expenseId || "").trim();
+
+  if (!expenseId) {
+    return jsonResponse({ ok: false, message: "expenseId is required" });
+  }
+
+  var sheet = getOrCreateNamedSheet_(SPLITS_EXPENSES_SHEET, [
+    "expense_id",
+    "group_id",
+    "description",
+    "total_amount",
+    "paid_by",
+    "shares_json",
+    "linked_transaction_id",
+    "created_by",
+    "created_at",
+  ]);
+  var values = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][0] !== expenseId) continue;
+
+    var groupId = values[i][1];
+    var paidBy = normalizeEmail_(values[i][4]);
+    var createdBy = normalizeEmail_(values[i][7]);
+
+    var groupMembers = splitsGetGroupMembers_(groupId);
+    if (!groupMembers || groupMembers.indexOf(userEmail) === -1) {
+      return jsonResponse({ ok: false, message: "Not authorized" });
+    }
+
+    // Only the creator or the payer can delete an expense
+    if (userEmail !== createdBy && userEmail !== paidBy) {
+      return jsonResponse({
+        ok: false,
+        message: "Only the creator or payer can delete this expense",
+      });
+    }
+
+    sheet.deleteRow(i + 1);
+    return jsonResponse({ ok: true, groupId: groupId });
+  }
+
+  return jsonResponse({ ok: false, message: "Expense not found" });
 }

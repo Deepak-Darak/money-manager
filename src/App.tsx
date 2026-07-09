@@ -605,19 +605,25 @@ export default function App() {
       ...current
     ]);
 
-    setAccounts((current) => applyTransactionEffect(current, nextTransaction, 1));
-    setFocusDate(payload.date);
+    setAccounts((current) => {
+      const updatedAccounts = applyTransactionEffect(current, nextTransaction, 1);
 
-    // If this is a transfer to a split group account, prompt to create a split expense
-    if (payload.kind === "transfer" && payload.toAccountId) {
-      const targetAccount = accounts.find((a) => a.id === payload.toAccountId);
-      if (targetAccount?.splitGroupId) {
-        const group = splitGroups.find((g) => g.id === targetAccount.splitGroupId);
-        if (group) {
-          setPendingSplitExpense({ transaction: nextTransaction, group });
+      // If this is a transfer to a split group account, prompt to create a split expense.
+      // We check inside setAccounts so we read the post-update account list.
+      if (payload.kind === "transfer" && payload.toAccountId) {
+        const targetAccount = updatedAccounts.find((a) => a.id === payload.toAccountId);
+        if (targetAccount?.splitGroupId) {
+          const group = splitGroups.find((g) => g.id === targetAccount.splitGroupId);
+          if (group) {
+            // Schedule the modal outside the setter to avoid setState-in-setState
+            queueMicrotask(() => setPendingSplitExpense({ transaction: nextTransaction, group }));
+          }
         }
       }
-    }
+
+      return updatedAccounts;
+    });
+    setFocusDate(payload.date);
   }
 
   function updateTransaction(payload: NewTransactionInput) {
